@@ -1,0 +1,89 @@
+name: CI — lint, tests, coverage, build and metrics
+
+on:
+  push:
+    branches: [main, develop, 'feature/**', 'fix/**', 'release/**']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality-build-metrics:
+    name: quality-build-metrics
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Record pipeline start time
+        run: |
+          mkdir -p test-metrics
+          date +%s > test-metrics/start_epoch.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+
+      - name: Install frontend dependencies
+        run: npm install --prefix frontend --no-audit --no-fund
+
+      - name: Lint frontend and save JSON report
+        run: |
+          mkdir -p test-metrics
+          npm run lint --prefix frontend -- --format json > test-metrics/eslint-report.json
+
+      - name: Run frontend unit tests and coverage
+        if: ${{ always() }}
+        run: npm run test:coverage --prefix frontend
+
+      - name: Run backend tests and generate JaCoCo report
+        if: ${{ always() }}
+        run: mvn -B -f backend/pom.xml verify
+
+      - name: Build frontend
+        if: ${{ success() }}
+        run: npm run build --prefix frontend
+
+      - name: Collect quality and process metrics
+        if: ${{ always() }}
+        run: python3 test-metrics/collect_metrics.py
+
+      - name: Upload build artifacts
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: price-analyzer-build-${{ github.run_number }}
+          path: |
+            frontend/dist/
+            backend/target/price-analyzer-backend-*.jar
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload test and metrics reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-metrics-${{ github.run_number }}
+          path: |
+            test-metrics/metrics-report.md
+            test-metrics/metrics.json
+            test-metrics/eslint-report.json
+            frontend/coverage/
+            backend/target/site/jacoco/
+            backend/target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 90
