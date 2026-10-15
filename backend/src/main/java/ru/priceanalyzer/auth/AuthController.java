@@ -1,4 +1,4 @@
-package ru.priceanalyzer.api;
+package ru.priceanalyzer.auth;
 
 public class AuthController {
   
