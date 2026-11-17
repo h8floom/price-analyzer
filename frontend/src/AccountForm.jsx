@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from './lib/api.js';
 
 const headings = {
@@ -19,6 +19,14 @@ export default function AccountForm({ resetToken, initialError, onSession, onRes
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialError);
   const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    if (resetToken) {
+      setMode('reset');
+      setError('');
+      setNotice('');
+    }
+  }, [resetToken]);
 
   function changeMode(next) {
     setMode(next);

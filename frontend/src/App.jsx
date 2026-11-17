@@ -241,6 +241,7 @@ function Workspace({ session, onLogout }) {
             <p>{page === 'overview' ? 'Мониторинг цен и выгодных предложений в разных магазинах.'
               : page === 'catalog' ? 'Товары и категории для наблюдения за ценами.'
               : page === 'compare' ? 'Анализ последних цен в магазинах для выбранного товара.'
+              : page === 'reports' ? 'Сводные изменения цен по товарам, категориям и магазинам.'
               : 'Загрузка истории цен из CSV и XLSX, выгрузка в CSV.'}</p></div>
           {!['import', 'reports'].includes(page) && <button className="btn primary" disabled={!products.length} onClick={() => setModal('price')}>＋ Добавить цену</button>}
         </div>
@@ -326,8 +327,16 @@ export default function App() {
   const [problem, setProblem] = useState('');
   const [resetToken, setResetToken] = useState(() => new URLSearchParams(location.hash.slice(1)).get('reset'));
   useEffect(() => {
-    if (resetToken) history.replaceState(null, '', location.pathname + location.search);
-  }, [resetToken]);
+    function consumeResetLink() {
+      const token = new URLSearchParams(location.hash.slice(1)).get('reset');
+      if (!token) return;
+      setResetToken(token);
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+    consumeResetLink();
+    window.addEventListener('hashchange', consumeResetLink);
+    return () => window.removeEventListener('hashchange', consumeResetLink);
+  }, []);
 
   useEffect(() => {
     let active = true;

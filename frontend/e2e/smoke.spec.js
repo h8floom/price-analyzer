@@ -29,8 +29,13 @@ test('пользователь регистрируется, сохраняет 
   await expect(page.getByRole('heading', { name: 'Обзор цен' })).toBeVisible();
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Обзор цен' })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.logo b')).toBeHidden();
   await page.getByRole('button', { name: 'Выйти' }).click();
   await expect(page.getByRole('heading', { name: 'Вход в Price Analyzer' })).toBeVisible();
+  await page.goto('/#reset=' + 'x'.repeat(43));
+  await expect(page.getByRole('heading', { name: 'Новый пароль' })).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
   expect((await page.request.get('/api/products')).status()).toBe(401);
 });
 
