@@ -58,6 +58,17 @@ jobs:
         if: ${{ success() }}
         run: npm run build --prefix frontend
 
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Run Playwright against the application
+        run: npm run test:e2e --prefix frontend
+
+      - name: Verify metrics collection
+        if: ${{ always() }}
+        run: python3 -m unittest discover -s test-metrics
+
       - name: Collect quality and process metrics
         if: ${{ always() }}
         run: python3 test-metrics/collect_metrics.py
@@ -83,6 +94,10 @@ jobs:
             test-metrics/metrics.json
             test-metrics/eslint-report.json
             frontend/coverage/
+            frontend/test-results/vitest-junit.xml
+            frontend/test-results/playwright-junit.xml
+            frontend/test-results/playwright-html/
+            frontend/test-results/playwright-artifacts/
             backend/target/site/jacoco/
             backend/target/surefire-reports/
           if-no-files-found: warn

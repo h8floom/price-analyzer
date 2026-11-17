@@ -60,9 +60,12 @@ test('пользователь добавляет две цены и сравн�
     await expect(page.getByRole('status')).toContainText('Цена сохранена');
   }
   await expect(page.getByRole('heading', { name: 'Сравнение магазинов' })).toBeVisible();
-  await expect(page.getByRole('row').filter({ hasText: 'E2E Магазин А' }).last()).toBeVisible();
-  await expect(page.getByRole('row').filter({ hasText: 'E2E Магазин Б' }).last()).toBeVisible();
-  await expect(page.getByText('99', { exact: false }).first()).toBeVisible();
+  const offers = page.getByRole('table').filter({
+    has: page.getByRole('columnheader', { name: 'РАЗНИЦА', exact: true }),
+  });
+  await expect(offers.getByRole('row', { name: /E2E Магазин А/ })).toBeVisible();
+  const bestOffer = offers.getByRole('row', { name: /E2E Магазин Б/ });
+  await expect(bestOffer.getByRole('cell', { name: /^99,00\s*₽$/ })).toBeVisible();
   await page.getByRole('button', { name: /Обзор/ }).click();
   await expect(page.getByRole('img', { name: /Линейный график динамики цен/ })).toBeVisible();
 });
