@@ -24,12 +24,25 @@ function LineChart({ history }) {
   const start = Date.parse(dates[0]);
   const end = Date.parse(dates.at(-1));
   const step = Math.ceil(dates.length / 6);
-  const labels = dates.filter((_, index) => index % step === 0 || index === dates.length - 1);
   const active = history.find((point) => point.id === activeId);
   const coords = (date, price) => [
     60 + (dates.length === 1 ? 310 : (Date.parse(date) - start) * 620 / (end - start)),
     240 - (Number(price) - min) * 190 / (max - min),
   ];
+  const lastDate = dates.at(-1);
+  const lastX = coords(lastDate, min)[0];
+  const labelGap = 75;
+  const labels = [];
+  let previousX = -Infinity;
+  for (let index = 0; index < dates.length - 1; index += step) {
+    const date = dates[index];
+    const [x] = coords(date, min);
+    if (x - previousX >= labelGap && lastX - x >= labelGap) {
+      labels.push(date);
+      previousX = x;
+    }
+  }
+  labels.push(lastDate);
   const ticks = [0, 1, 2, 3, 4].map((x) => min + x * (max - min) / 4);
   return <div className="chart-wrap">
     <svg viewBox="0 0 720 280" role="img" aria-label="Линейный график динамики цен">

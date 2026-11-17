@@ -73,7 +73,7 @@ test('пользователь добавляет, ищет, редактиру�
   await expect(page.getByRole('row').filter({ hasText: updated })).toHaveCount(0);
 });
 
-test('пользователь добавляет две цены и сравнивает предложения', async ({ page }) => {
+test('пользователь добавляет цены и сравнивает предложения', async ({ page }) => {
   await signIn(page);
   const name = uniqueName('E2E Сравнение');
   const res = await post(page.request, '/api/products', {
@@ -90,6 +90,7 @@ test('пользователь добавляет две цены и сравн�
 
   for (const [store, price, date] of [
     ['E2E Магазин А', '70.00', '2026-10-01'],
+    ['E2E Магазин А', '115.00', '2026-10-14'],
     ['E2E Магазин А', '125.00', '2026-10-15'],
     ['E2E Магазин Б', '99.00', '2026-10-15'],
   ]) {
@@ -118,7 +119,9 @@ test('пользователь добавляет две цены и сравн�
   await chart.locator('circle').filter({ hasText: '99,00' }).focus();
   await expect(page.locator('.chart-probe')).toContainText(/99,00\s*₽.*2026-10-15/);
   await page.getByRole('button', { name: 'Сбросить период' }).click();
-  await expect(chart.locator('circle')).toHaveCount(3);
+  await expect(chart.locator('circle')).toHaveCount(4);
+  const dateTicks = chart.locator('text[y="264"]');
+  await expect(dateTicks).toHaveText([/^1\D+окт/, /^15\D+окт/]);
 });
 
 test('пользователь загружает CSV и скачивает историю', async ({ page }) => {
