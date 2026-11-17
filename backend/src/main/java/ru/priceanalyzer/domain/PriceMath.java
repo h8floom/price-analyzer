@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /** Чистая бизнес-логика без Spring и базы данных. */
@@ -18,10 +19,11 @@ public final class PriceMath {
     public static List<PriceEntry> latestByStore(List<PriceEntry> entries) {
         Map<String, PriceEntry> latest = new HashMap<>();
         for (PriceEntry entry : entries) {
-            PriceEntry old = latest.get(entry.store());
+            String storeKey = entry.store().toLowerCase(Locale.ROOT);
+            PriceEntry old = latest.get(storeKey);
             if (old == null || entry.date().isAfter(old.date())
                     || (entry.date().isEqual(old.date()) && entry.id() > old.id())) {
-                latest.put(entry.store(), entry);
+                latest.put(storeKey, entry);
             }
         }
         List<PriceEntry> result = new ArrayList<>(latest.values());

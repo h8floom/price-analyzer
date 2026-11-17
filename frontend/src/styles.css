@@ -17,3 +17,20 @@
 @media (max-width: 540px) { .account-bar > span { display: none; } }
 .form-grid textarea { width: 100%; min-height: 72px; resize: vertical; font: inherit; color: inherit; border: 1px solid #d8deea; border-radius: 8px; padding: 10px 12px; }
 .product-description { margin: 4px 0 0; color: #4f5a75; overflow-wrap: anywhere; }
+.reports-panel { padding: 24px; }
+.reports-panel h2 { margin-top: 0; }
+.report-filters { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,160px),1fr)); gap: 12px; }
+.report-downloads { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.reports-panel th[scope=row] { background: transparent; color: inherit; text-transform: none; letter-spacing: normal; }
+.reports-panel td { font-variant-numeric: tabular-nums; }
+.chart-probe { margin: 0 12px 8px; min-height: 24px; color: #394765; }
+.chart-wrap circle:focus-visible { stroke: #171f38; stroke-width: 3; }
+dialog.dialog { width: min(calc(100% - 32px), 470px); max-height: calc(100dvh - 32px); border: 1px solid #d8deea; color: #202941; }
+dialog.dialog::backdrop { background: #2029418c; }
+.form-grid label, .date-filter label { font-size: 13px; }
+.form-grid input, .form-grid select, .form-grid textarea { font-size: 14px; }
+.form-grid input:focus-visible, .form-grid select:focus-visible, .form-grid textarea:focus-visible { outline: 2px solid #5044ce; outline-offset: 2px; box-shadow: none; }
+@media (max-width: 600px) {
+  .form-grid input, .form-grid select, .form-grid textarea { font-size: 16px; }
+  .date-filter { flex-wrap: wrap; }
+}

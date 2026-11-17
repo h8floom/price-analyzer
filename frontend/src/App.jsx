@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './lib/api.js';
 import AccountForm from './AccountForm.jsx';
+import Reports from './Reports.jsx';
 import { calculateStats, dateLabel, formatPrice, getSeries } from './lib/priceUtils.js';
 
 const NAV = [
@@ -8,17 +9,25 @@ const NAV = [
   ['catalog', '▤', 'Каталог товаров'],
   ['compare', '↗', 'Сравнение цен'],
   ['import', '⇪', 'Импорт / экспорт'],
+  ['reports', '▥', 'Отчёты'],
 ];
 
 function LineChart({ history }) {
+  const [activeId, setActiveId] = useState(null);
   const { dates, stores } = useMemo(() => getSeries(history), [history]);
   if (!history.length) return <div className="empty">Для выбранного периода пока нет цен.</div>;
   const colors = ['#7367f0', '#13ae99', '#f0a34e', '#d86cad', '#4b92d4'];
-  const values = history.map((p) => Number(p.price));
-  const min = Math.floor(Math.min(...values) / 20) * 20;
-  const max = Math.ceil(Math.max(...values, min + 20) / 20) * 20;
+  const lower = history.reduce((min, point) => Math.min(min, Number(point.price)), Infinity);
+  const upper = history.reduce((max, point) => Math.max(max, Number(point.price)), 0);
+  const min = Math.floor(lower / 20) * 20;
+  const max = Math.ceil(Math.max(upper, min + 20) / 20) * 20;
+  const start = Date.parse(dates[0]);
+  const end = Date.parse(dates.at(-1));
+  const step = Math.ceil(dates.length / 6);
+  const labels = dates.filter((_, index) => index % step === 0 || index === dates.length - 1);
+  const active = history.find((point) => point.id === activeId);
   const coords = (date, price) => [
-    60 + (dates.length === 1 ? 310 : dates.indexOf(date) * 620 / (dates.length - 1)),
+    60 + (dates.length === 1 ? 310 : (Date.parse(date) - start) * 620 / (end - start)),
     240 - (Number(price) - min) * 190 / (max - min),
   ];
   const ticks = [0, 1, 2, 3, 4].map((x) => min + x * (max - min) / 4);
@@ -28,7 +37,7 @@ function LineChart({ history }) {
         <line x1="60" x2="680" y1={coords(dates[0], v)[1]} y2={coords(dates[0], v)[1]} stroke="#e8ecf5" strokeDasharray="4 6" />
         <text x="48" y={coords(dates[0], v)[1] + 4} textAnchor="end" className="axis">{Math.round(v)} ₽</text>
       </g>)}
-      {dates.map((d) => <text key={d} x={coords(d, min)[0]} y="264" textAnchor="middle" className="axis">{dateLabel(d)}</text>)}
+      {labels.map((d) => <text key={d} x={coords(d, min)[0]} y="264" textAnchor="middle" className="axis">{dateLabel(d)}</text>)}
       {stores.map((store, index) => {
         const points = history.filter((p) => p.store === store).sort((a, b) => a.date.localeCompare(b.date));
         const line = points.map((p) => coords(p.date, p.price).join(',')).join(' ');
@@ -36,14 +45,27 @@ function LineChart({ history }) {
           {points.length > 1 && <polyline points={line} stroke={colors[index % colors.length]} fill="none" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />}
           {points.map((p) => {
             const [x, y] = coords(p.date, p.price);
-            return <circle key={p.id} cx={x} cy={y} r="5" fill={colors[index % colors.length]} stroke="white" strokeWidth="2">
+            return <circle key={p.id} cx={x} cy={y} r={activeId === p.id ? 7 : 5} fill={colors[index % colors.length]}
+              stroke="white" strokeWidth="2" tabIndex={0}
+              aria-label={`${store}: ${formatPrice(p.price)} — ${p.date}`}
+              onFocus={() => setActiveId(p.id)} onBlur={() => setActiveId(null)}
+              onMouseEnter={() => setActiveId(p.id)} onMouseLeave={() => setActiveId(null)}>
               <title>{`${store}: ${formatPrice(p.price)} — ${p.date}`}</title>
             </circle>;
           })}
         </g>;
       })}
     </svg>
+    <p className="chart-probe" role="status">{active && `${active.store}: ${formatPrice(active.price)} — ${active.date}`}</p>
     <div className="legend">{stores.map((s, i) => <span key={s}><i style={{ background: colors[i % colors.length] }} />{s}</span>)}</div>
+  </div>;
+}
+
+function DateRange({ from, to, setFrom, setTo }) {
+  return <div className="date-filter">
+    <label>Начало периода<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
+    <label>Конец периода<input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
+    <button type="button" onClick={() => { setFrom(''); setTo(''); }} className="text-btn">Сбросить период</button>
   </div>;
 }
 
@@ -99,6 +121,19 @@ function PriceForm({ products, selectedId, onCancel, onSave }) {
     <p className="helper">Для одного товара, магазина и дня допускается одна запись.</p>
     <div className="form-actions"><button type="button" className="btn secondary" onClick={onCancel}>Отмена</button><button disabled={busy} className="btn primary" type="submit">{busy ? 'Сохранение...' : 'Сохранить цену'}</button></div>
   </form>;
+}
+
+function Modal({ label, onClose, children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    dialog.showModal();
+    return () => dialog.close();
+  }, []);
+  return <dialog ref={ref} className="dialog" aria-label={label} onCancel={(event) => {
+    event.preventDefault();
+    onClose();
+  }}>{children}</dialog>;
 }
 
 function Workspace({ session, onLogout }) {
@@ -184,11 +219,11 @@ function Workspace({ session, onLogout }) {
 
   return <div className="app">
     <aside className="sidebar">
-      <div className="logo"><span>₽</span><div><b>Price Analyzer</b><small>АНАЛИЗ ЦЕН</small></div></div>
+      <div className="logo"><span>₽</span><div><b>Price Analyzer</b></div></div>
       <div className="nav-caption">РАБОЧАЯ ОБЛАСТЬ</div>
       <nav aria-label="Навигация">{NAV.map(([id, icon, label]) =>
-        <button key={id} onClick={() => { setPage(id); setMessage(''); }} className={`nav-link ${page === id ? 'active' : ''}`}>
-          <span className="nav-icon">{icon}</span>{label}
+        <button key={id} onClick={() => { setPage(id); setMessage(''); }} aria-current={page === id ? 'page' : undefined} className={`nav-link ${page === id ? 'active' : ''}`}>
+          <span className="nav-icon" aria-hidden="true">{icon}</span>{label}
         </button>)}</nav>
     </aside>
 
@@ -201,17 +236,17 @@ function Workspace({ session, onLogout }) {
       </header>
       <div className="content">
         <div className="heading">
-          <div><div className="eyebrow">PRICE ANALYTICS</div>
-            <h1>{page === 'overview' ? 'Обзор цен' : page === 'catalog' ? 'Каталог товаров' : page === 'compare' ? 'Сравнение цен' : 'Импорт и экспорт'}</h1>
+          <div>
+            <h1>{page === 'overview' ? 'Обзор цен' : page === 'catalog' ? 'Каталог товаров' : page === 'compare' ? 'Сравнение цен' : page === 'reports' ? 'Отчёты' : 'Импорт и экспорт'}</h1>
             <p>{page === 'overview' ? 'Мониторинг цен и выгодных предложений в разных магазинах.'
               : page === 'catalog' ? 'Товары и категории для наблюдения за ценами.'
               : page === 'compare' ? 'Анализ последних цен в магазинах для выбранного товара.'
               : 'Загрузка истории цен из CSV и XLSX, выгрузка в CSV.'}</p></div>
-          {page !== 'import' && <button className="btn primary" disabled={!products.length} onClick={() => setModal('price')}>＋ Добавить цену</button>}
+          {!['import', 'reports'].includes(page) && <button className="btn primary" disabled={!products.length} onClick={() => setModal('price')}>＋ Добавить цену</button>}
         </div>
 
-        {error && <div className="alert error" role="alert"><b>Ошибка:</b> {error}<button onClick={() => setError('')}>×</button></div>}
-        {message && <div className="alert success" role="status">{message}<button onClick={() => setMessage('')}>×</button></div>}
+        {error && <div className="alert error" role="alert"><b>Ошибка:</b> {error}<button aria-label="Закрыть ошибку" onClick={() => setError('')}>×</button></div>}
+        {message && <div className="alert success" role="status">{message}<button aria-label="Закрыть уведомление" onClick={() => setMessage('')}>×</button></div>}
 
         {page === 'overview' && <>
           <div className="metrics">
@@ -224,7 +259,7 @@ function Workspace({ session, onLogout }) {
             <div className="panel-head"><div><h2>Динамика цен</h2><p>История изменения стоимости по магазинам</p></div>
               <select aria-label="Товар для графика" value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
             </div>
-            <div className="date-filter"><span>Период:</span><label>с <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label><label>по <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label><button onClick={() => { setFrom(''); setTo(''); }} className="text-btn">Сбросить</button></div>
+            <DateRange from={from} to={to} setFrom={setFrom} setTo={setTo} />
             <LineChart history={analysis?.history || []} />
           </section>
           <section className="panel">
@@ -249,7 +284,8 @@ function Workspace({ session, onLogout }) {
         </section>}
 
         {page === 'compare' && <>
-          <section className="panel selector"><div><h2>Выбранный товар</h2><p>Для каждого магазина берётся последняя цена за период</p></div><select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></section>
+          <section className="panel selector"><div><h2>Выбранный товар</h2><p>Для каждого магазина берётся последняя цена за период</p></div><select aria-label="Товар для сравнения" value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></section>
+          <DateRange from={from} to={to} setFrom={setFrom} setTo={setTo} />
           <div className="metrics three">
             <Metric icon="↓" title="Минимальная" value={formatPrice(stats.min)} caption="Лучшая цена" />
             <Metric icon="≈" title="Средняя по магазинам" value={formatPrice(stats.average)} caption="Последние цены" />
@@ -267,6 +303,8 @@ function Workspace({ session, onLogout }) {
           </section>
         </>}
 
+        {page === 'reports' && <Reports products={products} prices={allPrices} />}
+
         {page === 'import' && <div className="import-grid">
           <section className="panel import-card"><div className="import-icon">⇪</div><h2>Импорт цен</h2><p>Загрузите историю в CSV или XLSX. Укажите заголовки в первой строке.</p><code>productId,store,price,date</code><label className="file-button"> {busyImport ? 'Загрузка...' : 'Выбрать CSV или XLSX'}<input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={busyImport} onChange={importFile} /></label><small>Дата: YYYY-MM-DD. Повторные записи пропускаются.</small></section>
           <section className="panel import-card"><div className="import-icon">⇩</div><h2>Экспорт CSV</h2><p>Сохрани историю цен на компьютер. Выбери все товары или только один.</p><select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}><option value="">Все товары</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><a className="btn secondary download" href={`/api/export/prices.csv${selectedId ? `?productId=${selectedId}` : ''}`}>Скачать CSV</a><small>Файл открывается в Excel и других табличных редакторах.</small></section>
@@ -274,14 +312,12 @@ function Workspace({ session, onLogout }) {
       </div>
     </main>
 
-    {modal && <div className="backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setModal(''); }}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-label={modal === 'product' ? 'Форма товара' : 'Форма цены'}>
-        <div className="dialog-head"><div><span>PRICEPILOT / ФОРМА</span><h2>{modal === 'product' ? editing ? 'Изменить товар' : 'Новый товар' : 'Добавить цену'}</h2></div><button className="close" onClick={() => setModal('')} aria-label="Закрыть">×</button></div>
-        {modal === 'product'
-          ? <ProductForm initial={editing} onSave={saveProduct} onCancel={() => setModal('')} />
-          : <PriceForm products={products} selectedId={selectedId} onSave={savePrice} onCancel={() => setModal('')} />}
-      </div>
-    </div>}
+    {modal && <Modal label={modal === 'product' ? 'Форма товара' : 'Форма цены'} onClose={() => setModal('')}>
+      <div className="dialog-head"><h2>{modal === 'product' ? editing ? 'Изменить товар' : 'Новый товар' : 'Добавить цену'}</h2><button className="close" onClick={() => setModal('')} aria-label="Закрыть">×</button></div>
+      {modal === 'product'
+        ? <ProductForm initial={editing} onSave={saveProduct} onCancel={() => setModal('')} />
+        : <PriceForm products={products} selectedId={selectedId} onSave={savePrice} onCancel={() => setModal('')} />}
+    </Modal>}
   </div>;
 }
 

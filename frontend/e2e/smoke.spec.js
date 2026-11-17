@@ -23,7 +23,7 @@ test('пользователь регистрируется, сохраняет 
   expect((await page.request.get('/api/products')).status()).toBe(401);
   await page.goto('/');
   await page.getByRole('button', { name: 'Создать аккаунт' }).click();
-  await page.getByLabel('Электронная почта').fill('browser-signup@example.test');
+  await page.getByLabel('Электронная почта').fill(`browser-signup-${Date.now()}@example.test`);
   await page.getByLabel('Пароль').fill(password);
   await page.getByRole('button', { name: 'Зарегистрироваться' }).click();
   await expect(page.getByRole('heading', { name: 'Обзор цен' })).toBeVisible();
@@ -83,13 +83,17 @@ test('пользователь добавляет две цены и сравн�
   await page.getByRole('button', { name: /Сравнение цен/ }).click();
   await page.locator('.selector select').selectOption({ label: name });
 
-  for (const [store, price] of [['E2E Магазин А', '125.00'], ['E2E Магазин Б', '99.00']]) {
+  for (const [store, price, date] of [
+    ['E2E Магазин А', '70.00', '2026-10-01'],
+    ['E2E Магазин А', '125.00', '2026-10-15'],
+    ['E2E Магазин Б', '99.00', '2026-10-15'],
+  ]) {
     await page.getByRole('button', { name: /Добавить цену/ }).click();
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel('Товар').selectOption({ label: name });
     await dialog.getByLabel('Магазин').fill(store);
     await dialog.getByLabel('Цена').fill(price);
-    await dialog.getByLabel('Дата').fill('2026-10-15');
+    await dialog.getByLabel('Дата').fill(date);
     await dialog.getByRole('button', { name: 'Сохранить цену' }).click();
     await expect(page.getByRole('status')).toContainText('Цена сохранена');
   }
@@ -100,8 +104,16 @@ test('пользователь добавляет две цены и сравн�
   await expect(offers.getByRole('row', { name: /E2E Магазин А/ })).toBeVisible();
   const bestOffer = offers.getByRole('row', { name: /E2E Магазин Б/ });
   await expect(bestOffer.getByRole('cell', { name: /^99,00\s*₽$/ })).toBeVisible();
+  await page.getByLabel('Начало периода').fill('2026-10-15');
+  await expect(page.getByRole('row').filter({ hasText: '2026-10-01' })).toHaveCount(0);
   await page.getByRole('button', { name: /Обзор/ }).click();
-  await expect(page.getByRole('img', { name: /Линейный график динамики цен/ })).toBeVisible();
+  const chart = page.getByRole('img', { name: /Линейный график динамики цен/ });
+  await expect(chart).toBeVisible();
+  await expect(chart.locator('circle')).toHaveCount(2);
+  await chart.locator('circle').filter({ hasText: '99,00' }).focus();
+  await expect(page.locator('.chart-probe')).toContainText(/99,00\s*₽.*2026-10-15/);
+  await page.getByRole('button', { name: 'Сбросить период' }).click();
+  await expect(chart.locator('circle')).toHaveCount(3);
 });
 
 test('пользователь загружает CSV и скачивает историю', async ({ page }) => {
@@ -132,4 +144,30 @@ test('пользователь загружает CSV и скачивает ис
   const csv = await fs.readFile(await download.path(), 'utf8');
   expect(csv).toContain('E2E CSV Магазин');
   expect(csv).toContain('147.25');
+});
+
+test('пользователь формирует отчёт и выгружает PDF и Excel', async ({ page }) => {
+  await signIn(page);
+  const category = uniqueName('Категория отчёта');
+  const product = await post(page.request, '/api/products', {
+    data: { name: uniqueName('Товар отчёта'), category, unit: 'шт.' },
+  });
+  expect(product.status()).toBe(201);
+  const productId = (await product.json()).id;
+  for (const [price, date] of [[100, '2026-09-01'], [120, '2026-09-02']]) {
+    expect((await post(page.request, '/api/prices', {
+      data: { productId, store: 'Контрольный магазин', price, date },
+    })).status()).toBe(201);
+  }
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Отчёты' }).click();
+  await page.getByRole('combobox', { name: 'Категория', exact: true }).selectOption(category);
+  await page.getByRole('button', { name: 'Сформировать отчёт' }).click();
+  const row = page.getByRole('row').filter({ hasText: category });
+  await expect(row).toContainText('20,00');
+  for (const [label, filename] of [['Скачать PDF', 'price-report.pdf'], ['Скачать Excel', 'price-report.xlsx']]) {
+    const pending = page.waitForEvent('download');
+    await page.getByRole('link', { name: label }).click();
+    expect((await pending).suggestedFilename()).toBe(filename);
+  }
 });

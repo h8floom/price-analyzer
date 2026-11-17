@@ -5,6 +5,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -18,6 +20,7 @@ import ru.priceanalyzer.service.CatalogService;
 @RestController
 @RequestMapping("/api")
 public class CatalogController {
+    private static final Logger log = LoggerFactory.getLogger(CatalogController.class);
     private final CatalogService service;
     public CatalogController(CatalogService service) {this.service=service;}
 
@@ -64,8 +67,15 @@ public class CatalogController {
     }
     @GetMapping(value="/export/prices.csv",produces="text/csv;charset=UTF-8")
     public ResponseEntity<String> csv(@RequestParam(required=false) Long productId){
-        return ResponseEntity.ok().header(HttpHeaders.CONTENT_DISPOSITION,
-                "attachment; filename=prices.csv").body(service.exportCsv(productId));
+        try {
+            if (productId != null) service.product(productId);
+            return ResponseEntity.ok().header(HttpHeaders.CONTENT_DISPOSITION,
+                    "attachment; filename=prices.csv").body(service.exportCsv(productId));
+        } catch (RuntimeException failure) {
+            log.warn("CSV price export failed, productId={}, error={}", productId, failure.getClass().getSimpleName());
+            if (failure instanceof ApiProblem problem) throw problem;
+            throw new ApiProblem(HttpStatus.INTERNAL_SERVER_ERROR, "Не удалось выгрузить цены");
+        }
     }
     @PostMapping(value="/import/prices",consumes={"text/csv","text/plain"})
     public Map<String,Integer> importCsv(@RequestBody String body){
