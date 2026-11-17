@@ -1,357 +1,277 @@
 import { useEffect, useMemo, useState } from 'react';
-import { formatPrice } from './lib/formatPrice.js';
-import { calculatePriceStats, getLatestPricesByStore, getProductPrices } from './lib/priceUtils.js';
-import './App.css';
+import { api } from './lib/api.js';
+import { calculateStats, dateLabel, formatPrice, getSeries } from './lib/priceUtils.js';
 
-const STORAGE_KEY = 'price-analyzer-v1';
-
-const initialProducts = [
-  { id: 1, name: 'Кофе молотый, 250 г', category: 'Напитки', unit: 'упаковка' },
-  { id: 2, name: 'Чай чёрный, 100 пакетиков', category: 'Напитки', unit: 'упаковка' },
-  { id: 3, name: 'Шоколад молочный, 90 г', category: 'Сладости', unit: 'плитка' },
-  { id: 4, name: 'Молоко 2,5%, 1 л', category: 'Молочные продукты', unit: 'литр' },
+const NAV = [
+  ['overview', '▦', 'Обзор'],
+  ['catalog', '▤', 'Каталог товаров'],
+  ['compare', '↗', 'Сравнение цен'],
+  ['import', '⇪', 'Импорт / экспорт'],
 ];
 
-const initialPrices = [
-  { id: 1, productId: 1, store: 'Магнит', price: 369, date: '2026-10-03' },
-  { id: 2, productId: 1, store: 'Пятёрочка', price: 379, date: '2026-10-03' },
-  { id: 3, productId: 1, store: 'Лента', price: 349, date: '2026-10-03' },
-  { id: 4, productId: 1, store: 'Магнит', price: 359, date: '2026-10-10' },
-  { id: 5, productId: 1, store: 'Пятёрочка', price: 369, date: '2026-10-10' },
-  { id: 6, productId: 1, store: 'Лента', price: 339, date: '2026-10-10' },
-  { id: 7, productId: 1, store: 'Магнит', price: 349, date: '2026-10-17' },
-  { id: 8, productId: 1, store: 'Пятёрочка', price: 365, date: '2026-10-17' },
-  { id: 9, productId: 1, store: 'Лента', price: 345, date: '2026-10-17' },
-  { id: 10, productId: 1, store: 'Магнит', price: 355, date: '2026-10-24' },
-  { id: 11, productId: 1, store: 'Пятёрочка', price: 359, date: '2026-10-24' },
-  { id: 12, productId: 1, store: 'Лента', price: 339, date: '2026-10-24' },
-  { id: 13, productId: 2, store: 'Магнит', price: 189, date: '2026-10-03' },
-  { id: 14, productId: 2, store: 'Пятёрочка', price: 205, date: '2026-10-03' },
-  { id: 15, productId: 2, store: 'Лента', price: 199, date: '2026-10-03' },
-  { id: 16, productId: 2, store: 'Магнит', price: 195, date: '2026-10-17' },
-  { id: 17, productId: 2, store: 'Пятёрочка', price: 199, date: '2026-10-17' },
-  { id: 18, productId: 2, store: 'Лента', price: 189, date: '2026-10-17' },
-  { id: 19, productId: 3, store: 'Магнит', price: 119, date: '2026-10-10' },
-  { id: 20, productId: 3, store: 'Пятёрочка', price: 125, date: '2026-10-10' },
-  { id: 21, productId: 3, store: 'Лента', price: 115, date: '2026-10-10' },
-  { id: 22, productId: 4, store: 'Магнит', price: 89, date: '2026-10-17' },
-  { id: 23, productId: 4, store: 'Пятёрочка', price: 92, date: '2026-10-17' },
-  { id: 24, productId: 4, store: 'Лента', price: 85, date: '2026-10-17' },
-];
-
-const navItems = [
-  { id: 'overview', label: 'Обзор', icon: 'grid' },
-  { id: 'catalog', label: 'Каталог товаров', icon: 'list' },
-  { id: 'compare', label: 'Сравнение цен', icon: 'swap' },
-];
-
-function loadInitialData() {
-  try {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed.products) && Array.isArray(parsed.prices)) return parsed;
-    }
-  } catch {
-    // если локальное хранилище недоступно, используем демонстрационные данные.
-  }
-  return { products: initialProducts, prices: initialPrices };
-}
-
-function formatDate(date) {
-  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' }).format(new Date(`${date}T00:00:00`));
-}
-
-function todayIso() {
-  const now = new Date();
-  const offset = now.getTimezoneOffset();
-  return new Date(now.getTime() - offset * 60_000).toISOString().slice(0, 10);
-}
-
-function Icon({ name }) {
-  const icons = {
-    grid: (
-      <>
-        <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
-        <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
-        <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
-        <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
-      </>
-    ),
-    list: <path d="M4 6h16M4 12h16M4 18h16" />,
-    swap: (
-      <>
-        <path d="M7 4 3 8l4 4" />
-        <path d="M3 8h14" />
-        <path d="m17 20 4-4-4-4" />
-        <path d="M21 16H7" />
-      </>
-    ),
-    search: (
-      <>
-        <circle cx="11" cy="11" r="7" />
-        <path d="m20 20-3.5-3.5" />
-      </>
-    ),
-    inbox: (
-      <>
-        <path d="M3 12h5l2 3h4l2-3h5" />
-        <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
-      </>
-    ),
-  };
-  return (
-    <svg className="icon-svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {icons[name]}
+function LineChart({ history }) {
+  const { dates, stores } = useMemo(() => getSeries(history), [history]);
+  if (!history.length) return <div className="empty">Для выбранного периода пока нет цен.</div>;
+  const colors = ['#7367f0', '#13ae99', '#f0a34e', '#d86cad', '#4b92d4'];
+  const values = history.map((p) => Number(p.price));
+  const min = Math.floor(Math.min(...values) / 20) * 20;
+  const max = Math.ceil(Math.max(...values, min + 20) / 20) * 20;
+  const coords = (date, price) => [
+    60 + (dates.length === 1 ? 310 : dates.indexOf(date) * 620 / (dates.length - 1)),
+    240 - (Number(price) - min) * 190 / (max - min),
+  ];
+  const ticks = [0, 1, 2, 3, 4].map((x) => min + x * (max - min) / 4);
+  return <div className="chart-wrap">
+    <svg viewBox="0 0 720 280" role="img" aria-label="Линейный график динамики цен">
+      {ticks.map((v) => <g key={v}>
+        <line x1="60" x2="680" y1={coords(dates[0], v)[1]} y2={coords(dates[0], v)[1]} stroke="#e8ecf5" strokeDasharray="4 6" />
+        <text x="48" y={coords(dates[0], v)[1] + 4} textAnchor="end" className="axis">{Math.round(v)} ₽</text>
+      </g>)}
+      {dates.map((d) => <text key={d} x={coords(d, min)[0]} y="264" textAnchor="middle" className="axis">{dateLabel(d)}</text>)}
+      {stores.map((store, index) => {
+        const points = history.filter((p) => p.store === store).sort((a, b) => a.date.localeCompare(b.date));
+        const line = points.map((p) => coords(p.date, p.price).join(',')).join(' ');
+        return <g key={store}>
+          {points.length > 1 && <polyline points={line} stroke={colors[index % colors.length]} fill="none" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />}
+          {points.map((p) => {
+            const [x, y] = coords(p.date, p.price);
+            return <circle key={p.id} cx={x} cy={y} r="5" fill={colors[index % colors.length]} stroke="white" strokeWidth="2">
+              <title>{`${store}: ${formatPrice(p.price)} — ${p.date}`}</title>
+            </circle>;
+          })}
+        </g>;
+      })}
     </svg>
-  );
+    <div className="legend">{stores.map((s, i) => <span key={s}><i style={{ background: colors[i % colors.length] }} />{s}</span>)}</div>
+  </div>;
 }
 
-function PriceChart({ records }) {
-  const [hovered, setHovered] = useState(null);
-  const chart = useMemo(() => {
-    const rows = [...records].sort((a, b) => a.date.localeCompare(b.date));
-    const dates = [...new Set(rows.map((row) => row.date))];
-    const stores = [...new Set(rows.map((row) => row.store))];
-    const values = rows.map((row) => row.price);
-    const min = Math.floor(Math.min(...values) / 20) * 20;
-    const maxValue = Math.max(...values, min + 20);
-    const max = Math.ceil(maxValue / 20) * 20;
-    const width = 680;
-    const height = 260;
-    const left = 54;
-    const right = 24;
-    const top = 18;
-    const bottom = 38;
-    const x = (index) => dates.length === 1 ? left + (width - left - right) / 2 : left + (index / (dates.length - 1)) * (width - left - right);
-    const y = (value) => height - bottom - ((value - min) / Math.max(1, max - min)) * (height - top - bottom);
-    const palette = ['#4a90d9', '#12a78b', '#e99a36', '#cb6eaa'];
-    const lines = stores.map((store, storeIndex) => {
-      const points = dates.map((date, index) => {
-        const row = rows.find((item) => item.store === store && item.date === date);
-        return row ? { x: x(index), y: y(row.price), date, price: row.price } : null;
-      }).filter(Boolean);
-      return { store, color: palette[storeIndex % palette.length], points };
-    });
-    return { dates, min, max, width, height, left, right, top, bottom, x, y, lines };
-  }, [records]);
+function Metric({ title, value, caption, icon }) {
+  return <div className="metric"><div className="metric-title">{title}<span className="metric-icon">{icon}</span></div><strong>{value}</strong><small>{caption}</small></div>;
+}
 
-  if (!records.length) return <div className="empty-chart">Для выбранного товара пока нет записей о ценах.</div>;
+function ProductForm({ initial, onCancel, onSave }) {
+  const [form, setForm] = useState(initial || { name: '', category: 'Продукты', unit: 'шт.' });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true); setError('');
+    try { await onSave(form); }
+    catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+  return <form className="form-grid" onSubmit={submit}>
+    <label>Название<input required maxLength="240" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Например, Кофе молотый, 250 г" /></label>
+    <label>Категория<input required maxLength="120" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></label>
+    <label>Единица<input required maxLength="64" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} /></label>
+    {error && <div className="field-error">{error}</div>}
+    <div className="form-actions"><button type="button" className="btn secondary" onClick={onCancel}>Отмена</button><button className="btn primary" disabled={busy} type="submit">{busy ? 'Сохранение...' : 'Сохранить товар'}</button></div>
+  </form>;
+}
 
-  const ticks = Array.from({ length: 5 }, (_, index) => chart.min + ((chart.max - chart.min) / 4) * index);
-  return (
-    <div className="chart-wrap">
-      <svg className="price-chart" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label="График изменения цены по магазинам">
-        {ticks.map((tick) => (
-          <g key={tick}>
-            <line x1={chart.left} y1={chart.y(tick)} x2={chart.width - chart.right} y2={chart.y(tick)} stroke="#e9edf4" strokeDasharray="4 5" />
-            <text x={chart.left - 10} y={chart.y(tick) + 4} textAnchor="end" className="axis-label">{Math.round(tick)} ₽</text>
-          </g>
-        ))}
-        {chart.dates.map((date, index) => (
-          <text key={date} x={chart.x(index)} y={chart.height - 12} textAnchor="middle" className="axis-label">{formatDate(date)}</text>
-        ))}
-        {chart.lines.map((line) => (
-          <g key={line.store}>
-            {line.points.length > 1 && <polyline points={line.points.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={line.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />}
-            {line.points.map((point) => {
-              const key = `${line.store}-${point.date}`;
-              const isHovered = hovered?.key === key;
-              return (
-                <circle
-                  key={key}
-                  cx={point.x}
-                  cy={point.y}
-                  r={isHovered ? 6 : 4.5}
-                  fill={line.color}
-                  stroke="white"
-                  strokeWidth="2"
-                  style={{ cursor: 'pointer' }}
-                  onMouseEnter={() => setHovered({ key, x: point.x, y: point.y, store: line.store, price: point.price, date: point.date })}
-                  onMouseLeave={() => setHovered(null)}
-                />
-              );
-            })}
-          </g>
-        ))}
-        {hovered && (() => {
-          const tw = 150;
-          const th = 44;
-          const tx = Math.min(Math.max(hovered.x, tw / 2 + 8), chart.width - tw / 2 - 8);
-          const placeBelow = hovered.y < th + 20;
-          const ty = placeBelow ? hovered.y + 10 : hovered.y - th - 10;
-          return (
-            <g pointerEvents="none">
-              <line x1={hovered.x} y1={hovered.y - 4} x2={hovered.x} y2={placeBelow ? ty : ty + th} stroke="#c8cbd5" strokeDasharray="3 3" />
-              <rect x={tx - tw / 2} y={ty} width={tw} height={th} rx={6} fill="#1e2436" />
-              <text x={tx} y={ty + 18} textAnchor="middle" fill="#ffffff" fontSize="10" fontWeight="600">{hovered.store}</text>
-              <text x={tx} y={ty + 33} textAnchor="middle" fill="#c8cbd5" fontSize="9">{formatPrice(hovered.price)} · {formatDate(hovered.date)}</text>
-            </g>
-          );
-        })()}
-      </svg>
-      <div className="chart-legend">
-        {chart.lines.map((line) => <span key={line.store}><i style={{ background: line.color }} />{line.store}</span>)}
-      </div>
+function todayLocal() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function PriceForm({ products, selectedId, onCancel, onSave }) {
+  const [form, setForm] = useState({ productId: Number(selectedId || products[0]?.id),
+    store: 'Магнит', price: '', date: todayLocal() });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function submit(event) {
+    event.preventDefault(); setBusy(true); setError('');
+    try { await onSave({ ...form, productId: Number(form.productId), price: Number(form.price) }); }
+    catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+  return <form className="form-grid" onSubmit={submit}>
+    <label>Товар<select required value={form.productId} onChange={(e) => setForm({ ...form, productId: e.target.value })}>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+    <label>Магазин<input required maxLength="160" value={form.store} onChange={(e) => setForm({ ...form, store: e.target.value })} /></label>
+    <div className="two-col">
+      <label>Цена, ₽<input required type="number" min="0.01" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /></label>
+      <label>Дата<input required type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></label>
     </div>
-  );
-}
-
-function EmptyState({ title, description }) {
-  return <div className="empty-state"><div className="empty-icon"><Icon name="inbox" /></div><strong>{title}</strong><p>{description}</p></div>;
+    {error && <div className="field-error">{error}</div>}
+    <p className="helper">Для одного товара, магазина и дня допускается одна запись.</p>
+    <div className="form-actions"><button type="button" className="btn secondary" onClick={onCancel}>Отмена</button><button disabled={busy} className="btn primary" type="submit">{busy ? 'Сохранение...' : 'Сохранить цену'}</button></div>
+  </form>;
 }
 
 export default function App() {
-  const [data, setData] = useState(loadInitialData);
-  const [activePage, setActivePage] = useState('overview');
-  const [selectedProductId, setSelectedProductId] = useState('1');
-  const [showProductForm, setShowProductForm] = useState(false);
-  const [showPriceForm, setShowPriceForm] = useState(false);
+  const [page, setPage] = useState('overview');
+  const [products, setProducts] = useState([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [analysis, setAnalysis] = useState(null);
+  const [allPrices, setAllPrices] = useState([]);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [modal, setModal] = useState('');
+  const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState('');
-  const [notice, setNotice] = useState('');
-  const [productForm, setProductForm] = useState({ name: '', category: 'Продукты', unit: 'шт.' });
-  const [priceForm, setPriceForm] = useState({ productId: '1', store: 'Магнит', price: '', date: todayIso() });
-  const [formError, setFormError] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [tick, setTick] = useState(0);
+  const [busyImport, setBusyImport] = useState(false);
 
   useEffect(() => {
+    let ignore = false;
+    Promise.all([api.health(), api.products(), api.prices()])
+      .then(([_, list, prices]) => {
+        if (ignore) return;
+        setProducts(list);
+        setAllPrices(prices);
+        setSelectedId((old) => list.some((p) => String(p.id) === String(old))
+          ? old : String(list[0]?.id || ''));
+        setError('');
+      })
+      .catch((e) => { if (!ignore) setError(e.message); });
+    return () => { ignore = true; };
+  }, [tick]);
+
+  useEffect(() => {
+    if (!selectedId) { setAnalysis(null); return; }
+    let ignore = false;
+    api.analysis(selectedId, from, to)
+      .then((value) => { if (!ignore) setAnalysis(value); })
+      .catch((e) => { if (!ignore) { setAnalysis(null); setError(e.message); } });
+    return () => { ignore = true; };
+  }, [selectedId, from, to, tick]);
+
+  const latest = analysis?.latest || [];
+  const stats = analysis?.stats || calculateStats(latest);
+  const filtered = products.filter((p) => `${p.name} ${p.category}`.toLowerCase().includes(search.toLowerCase()));
+  const selectedProduct = products.find((p) => String(p.id) === String(selectedId));
+  const averageAll = calculateStats(allPrices).average;
+  const lastDate = allPrices.length ? [...allPrices].sort((a,b) => b.date.localeCompare(a.date))[0].date : null;
+
+  function changed(text) { setMessage(text); setError(''); setTick((old) => old + 1); }
+  async function saveProduct(form) {
+    if (editing) await api.updateProduct(editing.id, form);
+    else await api.createProduct(form);
+    setModal(''); setEditing(null); changed(editing ? 'Товар обновлён.' : 'Товар добавлен.');
+  }
+  async function deleteProduct(p) {
+    if (!window.confirm(`Удалить товар «${p.name}» и всю его историю цен?`)) return;
+    try { await api.deleteProduct(p.id); changed('Товар удалён вместе с его историей.'); }
+    catch (e) { setError(e.message); }
+  }
+  async function savePrice(form) {
+    await api.createPrice(form);
+    setSelectedId(String(form.productId));
+    setModal(''); changed('Цена сохранена, показатели обновлены.');
+  }
+  async function deletePrice(record) {
+    if (!window.confirm('Удалить эту запись о цене?')) return;
+    try { await api.deletePrice(record.id); changed('Запись удалена.'); }
+    catch (e) { setError(e.message); }
+  }
+  async function importFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setBusyImport(true); setError('');
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch {
-      // приложение продолжает работать в текущем сеансе даже без localStorage.
-    }
-  }, [data]);
-
-  const selectedProduct = data.products.find((product) => String(product.id) === String(selectedProductId)) || data.products[0];
-  const productRecords = selectedProduct ? getProductPrices(data.prices, selectedProduct.id) : [];
-  const latestPrices = selectedProduct ? getLatestPricesByStore(data.prices, selectedProduct.id) : [];
-  const stats = calculatePriceStats(latestPrices);
-  const filteredProducts = data.products.filter((product) => `${product.name} ${product.category}`.toLowerCase().includes(search.toLowerCase()));
-  const latestRecord = [...data.prices].sort((a, b) => b.date.localeCompare(a.date))[0];
-  const globalAverage = data.prices.length ? data.prices.reduce((sum, row) => sum + row.price, 0) / data.prices.length : 0;
-
-  function selectPage(page) {
-    setActivePage(page);
-    setNotice('');
-    setFormError('');
+      const result = await api.importCsv(await file.text());
+      changed(`Импортировано: ${result.imported}. Дубликатов пропущено: ${result.duplicatesSkipped}.`);
+    } catch (e) { setError(e.message); }
+    finally { setBusyImport(false); event.target.value = ''; }
   }
 
-  function addProduct(event) {
-    event.preventDefault();
-    const name = productForm.name.trim();
-    if (!name) {
-      setFormError('Укажи название товара.');
-      return;
-    }
-    if (data.products.some((product) => product.name.toLowerCase() === name.toLowerCase())) {
-      setFormError('Товар с таким названием уже есть в каталоге.');
-      return;
-    }
-    const id = Math.max(0, ...data.products.map((product) => Number(product.id))) + 1;
-    setData((current) => ({ ...current, products: [...current.products, { id, ...productForm, name }] }));
-    setSelectedProductId(String(id));
-    setPriceForm((current) => ({ ...current, productId: String(id) }));
-    setProductForm({ name: '', category: 'Продукты', unit: 'шт.' });
-    setShowProductForm(false);
-    setFormError('');
-    setNotice('Товар добавлен в каталог.');
-  }
+  return <div className="app">
+    <aside className="sidebar">
+      <div className="logo"><span>₽</span><div><b>PricePilot</b><small>АНАЛИЗ ЦЕН</small></div></div>
+      <div className="nav-caption">РАБОЧАЯ ОБЛАСТЬ</div>
+      <nav aria-label="Навигация">{NAV.map(([id, icon, label]) =>
+        <button key={id} onClick={() => { setPage(id); setMessage(''); }} className={`nav-link ${page === id ? 'active' : ''}`}>
+          <span className="nav-icon">{icon}</span>{label}
+        </button>)}</nav>
+    </aside>
 
-  function addPrice(event) {
-    event.preventDefault();
-    const price = Number(priceForm.price);
-    if (!priceForm.productId || !priceForm.store.trim() || !priceForm.date || !Number.isFinite(price) || price <= 0) {
-      setFormError('Заполни товар, магазин, дату и положительную цену.');
-      return;
-    }
-    const duplicate = data.prices.some((row) => String(row.productId) === String(priceForm.productId) && row.store.trim().toLowerCase() === priceForm.store.trim().toLowerCase() && row.date === priceForm.date);
-    if (duplicate) {
-      setFormError('Для этого товара, магазина и даты запись уже существует.');
-      return;
-    }
-    const id = Math.max(0, ...data.prices.map((row) => Number(row.id))) + 1;
-    setData((current) => ({ ...current, prices: [...current.prices, { id, ...priceForm, productId: Number(priceForm.productId), store: priceForm.store.trim(), price }] }));
-    setSelectedProductId(String(priceForm.productId));
-    setActivePage('overview');
-    setShowPriceForm(false);
-    setPriceForm((current) => ({ ...current, price: '', date: todayIso() }));
-    setFormError('');
-    setNotice('Цена добавлена. График и сравнение обновлены.');
-  }
-
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">P</div>
-          <div><b>PricePilot</b><span>Анализ цен</span></div>
+    <main className="workspace">
+      <header className="topbar"><div>Рабочая область <span>/</span> <b>{NAV.find(([id]) => id === page)?.[2]}</b></div></header>
+      <div className="content">
+        <div className="heading">
+          <div><div className="eyebrow">PRICE ANALYTICS</div>
+            <h1>{page === 'overview' ? 'Обзор цен' : page === 'catalog' ? 'Каталог товаров' : page === 'compare' ? 'Сравнение цен' : 'Импорт и экспорт'}</h1>
+            <p>{page === 'overview' ? 'Мониторинг цен и выгодных предложений в разных магазинах.'
+              : page === 'catalog' ? 'Товары и категории для наблюдения за ценами.'
+              : page === 'compare' ? 'Анализ последних цен в магазинах для выбранного товара.'
+              : 'Загрузка и выгрузка истории цен в формате CSV.'}</p></div>
+          {page !== 'import' && <button className="btn primary" disabled={!products.length} onClick={() => setModal('price')}>＋ Добавить цену</button>}
         </div>
-        <div className="sidebar-label">РАБОЧАЯ ОБЛАСТЬ</div>
-        <nav className="side-nav" aria-label="Основная навигация">
-          {navItems.map((item) => (
-            <button key={item.id} className={`nav-item ${activePage === item.id ? 'active' : ''}`} onClick={() => selectPage(item.id)}>
-              <Icon name={item.icon} /><span>{item.label}</span>{activePage === item.id && <i />}
-            </button>
-          ))}
-        </nav>
-      </aside>
 
-      <main className="main-area">
-        <header className="topbar">
-          <div className="breadcrumb">Рабочая область <span>/</span> <b>{navItems.find((item) => item.id === activePage)?.label}</b></div>
-        </header>
+        {error && <div className="alert error" role="alert"><b>Ошибка:</b> {error}<button onClick={() => setError('')}>×</button></div>}
+        {message && <div className="alert success" role="status">{message}<button onClick={() => setMessage('')}>×</button></div>}
 
-        <div className="content-area">
-          <div className="page-heading">
-            <div><p className="overline">PRICE ANALYTICS</p><h1>{activePage === 'overview' ? 'Обзор цен' : activePage === 'catalog' ? 'Каталог товаров' : 'Сравнение цен'}</h1><p className="page-description">{activePage === 'overview' ? 'Следи за изменением стоимости и находи лучшие предложения.' : activePage === 'catalog' ? 'Список товаров, для которых мы собираем информацию о ценах.' : 'Сравни последние цены в разных магазинах и выбирай выгодное предложение.'}</p></div>
-            <button className="primary-button" onClick={() => { setShowPriceForm(true); setFormError(''); setPriceForm((current) => ({ ...current, productId: selectedProduct ? String(selectedProduct.id) : String(data.products[0]?.id || '') })); }}><span>＋</span> Добавить цену</button>
+        {page === 'overview' && <>
+          <div className="metrics">
+            <Metric icon="▤" title="Товаров в каталоге" value={products.length} caption="Количество позиций" />
+            <Metric icon="↗" title="Записей о ценах" value={allPrices.length} caption="История наблюдений" />
+            <Metric icon="₽" title="Средняя цена записи" value={formatPrice(averageAll)} caption="По всем записям" />
+            <Metric icon="◷" title="Последнее обновление" value={lastDate ? dateLabel(lastDate) : '—'} caption="Дата нового наблюдения" />
           </div>
+          <section className="panel">
+            <div className="panel-head"><div><h2>Динамика цен</h2><p>История изменения стоимости по магазинам</p></div>
+              <select aria-label="Товар для графика" value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+            </div>
+            <div className="date-filter"><span>Период:</span><label>с <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label><label>по <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label><button onClick={() => { setFrom(''); setTo(''); }} className="text-btn">Сбросить</button></div>
+            <LineChart history={analysis?.history || []} />
+          </section>
+          <section className="panel">
+            <div className="panel-head"><div><h2>Цены по магазинам</h2><p>Последние известные предложения для «{selectedProduct?.name || '—'}»</p></div><button className="text-btn" onClick={() => setPage('compare')}>Подробнее →</button></div>
+            {!latest.length ? <div className="empty">Добавь первую цену для сравнения.</div> : <div className="store-list">
+              {latest.map((p, i) => <div className="store-item" key={p.id}>
+                <div className="store-avatar">{p.store[0]}</div><div className="store-name"><b>{p.store}</b><small>Цена на {dateLabel(p.date)}</small></div>
+                <div className="bar"><i style={{ width: `${Number(p.price) / Math.max(...latest.map((x) => Number(x.price))) * 100}%`, background: i === 0 ? '#12ad91' : '#b7b8ed' }} /></div>
+                <strong>{formatPrice(p.price)}</strong>{i === 0 && <span className="best">Выгодно</span>}
+              </div>)}
+            </div>}
+          </section>
+        </>}
 
-          {notice && <div className="notice" role="status"><span>✓</span>{notice}<button onClick={() => setNotice('')} aria-label="Закрыть сообщение">×</button></div>}
+        {page === 'catalog' && <section className="panel">
+          <div className="panel-head"><div><h2>Все товары</h2><p>Сейчас в каталоге: {products.length}</p></div>
+            <button className="btn secondary" onClick={() => { setEditing(null); setModal('product'); }}>＋ Новый товар</button></div>
+          <div className="search"><span>⌕</span><input aria-label="Поиск товаров" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск по названию и категории..." /></div>
+          <div className="table-scroll"><table><thead><tr><th>ТОВАР</th><th>КАТЕГОРИЯ</th><th>ЕДИНИЦА</th><th>ДЕЙСТВИЯ</th></tr></thead><tbody>
+            {filtered.map((p) => <tr key={p.id}><td><b>{p.name}</b></td><td><span className="chip">{p.category}</span></td><td>{p.unit}</td><td className="actions"><button onClick={() => { setSelectedId(String(p.id)); setPage('compare'); }}>Сравнить</button><button onClick={() => { setEditing(p); setModal('product'); }}>Изменить</button><button className="danger-btn" onClick={() => deleteProduct(p)}>Удалить</button></td></tr>)}
+          </tbody></table>{!filtered.length && <div className="empty">Товары не найдены.</div>}</div>
+        </section>}
 
-          {activePage === 'overview' && (
-            <>
-              <section className="metric-grid" aria-label="Основные показатели">
-                <article className="metric-card"><div className="metric-top"><span>Товаров в каталоге</span></div><div className="metric-value">{data.products.length}</div></article>
-                <article className="metric-card"><div className="metric-top"><span>Записей о ценах</span></div><div className="metric-value">{data.prices.length}</div></article>
-                <article className="metric-card"><div className="metric-top"><span>Средняя цена записи</span></div><div className="metric-value">{formatPrice(globalAverage)}</div></article>
-                <article className="metric-card"><div className="metric-top"><span>Последнее обновление</span></div><div className="metric-value date-value">{latestRecord ? formatDate(latestRecord.date) : '—'}</div></article>
-              </section>
+        {page === 'compare' && <>
+          <section className="panel selector"><div><h2>Выбранный товар</h2><p>Для каждого магазина берётся последняя цена за период</p></div><select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></section>
+          <div className="metrics three">
+            <Metric icon="↓" title="Минимальная" value={formatPrice(stats.min)} caption="Лучшая цена" />
+            <Metric icon="≈" title="Средняя по магазинам" value={formatPrice(stats.average)} caption="Последние цены" />
+            <Metric icon="↑" title="Максимальная" value={formatPrice(stats.max)} caption="Дорогое предложение" />
+          </div>
+          <section className="panel"><div className="panel-head"><div><h2>Сравнение магазинов</h2><p>Цены упорядочены по возрастанию</p></div></div>
+            <div className="table-scroll"><table><thead><tr><th>МАГАЗИН</th><th>ЦЕНА</th><th>ДАТА</th><th>РАЗНИЦА</th></tr></thead><tbody>
+              {latest.map((p, i) => <tr key={p.id}><td><b>{p.store}</b>{i === 0 && <span className="best inline">Минимум</span>}</td><td className={i === 0 ? 'green-text' : ''}><b>{formatPrice(p.price)}</b></td><td>{p.date}</td><td>{i === 0 ? '—' : `+${formatPrice(Number(p.price) - Number(stats.min))}`}</td></tr>)}
+            </tbody></table>{!latest.length && <div className="empty">Для выбранного товара нет цен.</div>}</div>
+          </section>
+          <section className="panel"><div className="panel-head"><div><h2>История записей</h2><p>Удаление ошибочного измерения</p></div></div>
+            <div className="table-scroll"><table><thead><tr><th>МАГАЗИН</th><th>ЦЕНА</th><th>ДАТА</th><th></th></tr></thead><tbody>
+              {(analysis?.history || []).map((p) => <tr key={p.id}><td>{p.store}</td><td>{formatPrice(p.price)}</td><td>{p.date}</td><td className="actions"><button className="danger-btn" onClick={() => deletePrice(p)}>Удалить</button></td></tr>)}
+            </tbody></table></div>
+          </section>
+        </>}
 
-              <section className="panel chart-panel">
-                <div className="panel-heading"><div><h2>Динамика цен</h2><p>История изменения стоимости по магазинам</p></div><label className="select-label"><span>Товар</span><select value={selectedProduct ? selectedProduct.id : ''} onChange={(event) => setSelectedProductId(event.target.value)} aria-label="Товар для графика">{data.products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label></div>
-                {selectedProduct && <div className="chart-summary"><strong>{selectedProduct.name}</strong><span>{productRecords.length} замеров цены</span></div>}
-                <PriceChart records={productRecords} />
-              </section>
+        {page === 'import' && <div className="import-grid">
+          <section className="panel import-card"><div className="import-icon">⇪</div><h2>Импорт CSV</h2><p>Загрузи новые записи о ценах. Первая строка файла должна содержать заголовки:</p><code>productId,store,price,date</code><label className="file-button"> {busyImport ? 'Загрузка...' : 'Выбрать CSV-файл'}<input type="file" accept=".csv,text/csv" disabled={busyImport} onChange={importFile} /></label><small>Дата: YYYY-MM-DD. Повторные записи пропускаются.</small></section>
+          <section className="panel import-card"><div className="import-icon">⇩</div><h2>Экспорт CSV</h2><p>Сохрани историю цен на компьютер. Выбери все товары или только один.</p><select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}><option value="">Все товары</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><a className="btn secondary download" href={`/api/export/prices.csv${selectedId ? `?productId=${selectedId}` : ''}`}>Скачать CSV</a><small>Файл открывается в Excel и других табличных редакторах.</small></section>
+        </div>}
+      </div>
+    </main>
 
-              <section className="panel recent-panel">
-                <div className="panel-heading"><div><h2>Сравнение по магазинам</h2><p>Самая свежая цена в каждом магазине для выбранного товара</p></div><button className="text-button" onClick={() => selectPage('compare')}>Подробнее <span></span></button></div>
-                {latestPrices.length ? <div className="comparison-list">{latestPrices.map((record, index) => <div className={`comparison-row ${index === 0 ? 'best-row' : ''}`} key={`${record.store}-${record.date}`}><div className="store-avatar">{record.store.slice(0, 1)}</div><div className="store-info"><b>{record.store}</b><span>Обновлено {formatDate(record.date)}</span></div><div className="price-track"><div style={{ width: `${Math.max(12, (record.price / Math.max(...latestPrices.map((item) => item.price))) * 100)}%` }} /></div><strong className="store-price">{formatPrice(record.price)}</strong>{index === 0 ? <span className="best-label">Выгодно</span> : <span className="neutral-label">—</span>}</div>)}</div> : <EmptyState title="Нет цен для сравнения" description="Добавь первую запись о цене для выбранного товара." />}
-              </section>
-            </>
-          )}
-
-          {activePage === 'catalog' && (
-            <section className="panel catalog-panel">
-              <div className="panel-heading catalog-heading"><div><h2>Все товары</h2><p>{data.products.length} позиций в каталоге</p></div><button className="secondary-button" onClick={() => { setShowProductForm((open) => !open); setFormError(''); }}><span>＋</span> Новый товар</button></div>
-              {showProductForm && <form className="inline-form product-form" onSubmit={addProduct}><label>Название товара<input autoFocus value={productForm.name} onChange={(event) => setProductForm({ ...productForm, name: event.target.value })} placeholder="Например, Овсяные хлопья, 500 г" /></label><label>Категория<select value={productForm.category} onChange={(event) => setProductForm({ ...productForm, category: event.target.value })}><option>Продукты</option><option>Напитки</option><option>Сладости</option><option>Молочные продукты</option><option>Бытовые товары</option></select></label><label>Единица<input value={productForm.unit} onChange={(event) => setProductForm({ ...productForm, unit: event.target.value })} placeholder="шт." /></label><div className="form-actions"><button type="button" className="cancel-button" onClick={() => setShowProductForm(false)}>Отмена</button><button type="submit" className="primary-button">Сохранить</button></div></form>}
-              <div className="table-toolbar"><div className="search-box"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск по названию или категории..." aria-label="Поиск товаров" /></div><span className="muted-text">Сначала новые изменения</span></div>
-              {filteredProducts.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>ТОВАР</th><th>КАТЕГОРИЯ</th><th>ЗАМЕРОВ</th><th>МИН. ЦЕНА</th><th>ДЕЙСТВИЕ</th></tr></thead><tbody>{filteredProducts.map((product) => { const rows = getLatestPricesByStore(data.prices, product.id); const productStats = calculatePriceStats(rows); return <tr key={product.id}><td><div className="product-cell"><div className="product-icon">{product.name.slice(0, 1)}</div><div><b>{product.name}</b><span>{product.unit}</span></div></div></td><td><span className="category-chip">{product.category}</span></td><td>{getProductPrices(data.prices, product.id).length}</td><td><b>{productStats.min == null ? 'Нет данных' : formatPrice(productStats.min)}</b></td><td><button className="table-action" onClick={() => { setSelectedProductId(String(product.id)); selectPage('compare'); }}>Сравнить</button></td></tr>; })}</tbody></table></div> : <EmptyState title="Ничего не найдено" description="Попробуй изменить поисковый запрос." />}
-            </section>
-          )}
-
-          {activePage === 'compare' && (
-            <>
-              <section className="panel compare-selector"><div><h2>Выбери товар</h2><p>Цены отсортированы от низкой к высокой.</p></div><select value={selectedProduct ? selectedProduct.id : ''} onChange={(event) => setSelectedProductId(event.target.value)} aria-label="Товар для сравнения">{data.products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></section>
-              {selectedProduct ? <><section className="metric-grid comparison-metrics"><article className="metric-card"><div className="metric-top"><span>Минимальная</span></div><div className="metric-value">{stats.min == null ? '—' : formatPrice(stats.min)}</div></article><article className="metric-card"><div className="metric-top"><span>Средняя по магазинам</span></div><div className="metric-value">{stats.average == null ? '—' : formatPrice(stats.average)}</div></article><article className="metric-card"><div className="metric-top"><span>Максимальная</span></div><div className="metric-value">{stats.max == null ? '—' : formatPrice(stats.max)}</div></article></section>
-                <section className="panel compare-table-panel"><div className="panel-heading"><div><h2>Цены в магазинах</h2><p>{selectedProduct.name}</p></div><span className="rows-count">{latestPrices.length} магазина</span></div>{latestPrices.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>МАГАЗИН</th><th>ПОСЛЕДНЯЯ ЦЕНА</th><th>ДАТА</th><th>РАЗНИЦА С МИНИМУМОМ</th></tr></thead><tbody>{latestPrices.map((record, index) => <tr key={record.store} className={index === 0 ? 'highlight-row' : ''}><td><div className="store-table-cell"><div className="store-avatar">{record.store.slice(0, 1)}</div><b>{record.store}</b>{index === 0 && <span className="best-label">Лучшая цена</span>}</div></td><td><strong className={index === 0 ? 'green-price' : ''}>{formatPrice(record.price)}</strong></td><td>{formatDate(record.date)}</td><td>{index === 0 ? '—' : `+${formatPrice(record.price - (stats.min ?? record.price))}`}</td></tr>)}</tbody></table></div> : <EmptyState title="Нет данных для сравнения" description="Добавь цену товара хотя бы в одном магазине." />}</section></> : <EmptyState title="Каталог пуст" description="Сначала добавь товар в каталог." />}
-            </>
-          )}
-
-          <footer className="page-footer"><span></span></footer>
-        </div>
-      </main>
-
-      {showPriceForm && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowPriceForm(false); }}><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="price-modal-title"><div className="modal-heading"><div><p className="overline">НОВАЯ ЗАПИСЬ</p><h2 id="price-modal-title">Добавить цену</h2><p>Укажи стоимость товара в конкретном магазине.</p></div><button className="close-button" onClick={() => setShowPriceForm(false)} aria-label="Закрыть">×</button></div><form className="modal-form" onSubmit={addPrice}><label>Товар<select value={priceForm.productId} onChange={(event) => setPriceForm({ ...priceForm, productId: event.target.value })} required>{data.products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label><label>Магазин<input value={priceForm.store} onChange={(event) => setPriceForm({ ...priceForm, store: event.target.value })} placeholder="Например, Магнит" required /></label><div className="form-two-col"><label>Цена, ₽<input type="number" min="0.01" step="0.01" value={priceForm.price} onChange={(event) => setPriceForm({ ...priceForm, price: event.target.value })} placeholder="0,00" required /></label><label>Дата замера<input type="date" value={priceForm.date} onChange={(event) => setPriceForm({ ...priceForm, date: event.target.value })} required /></label></div>{formError && <p className="form-error" role="alert">{formError}</p>}<p className="form-hint">Повторная запись для того же товара, магазина и даты не допускается.</p><div className="form-actions"><button type="button" className="cancel-button" onClick={() => setShowPriceForm(false)}>Отмена</button><button type="submit" className="primary-button">Сохранить цену</button></div></form></section></div>}
-    </div>
-  );
+    {modal && <div className="backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setModal(''); }}>
+      <div className="dialog" role="dialog" aria-modal="true" aria-label={modal === 'product' ? 'Форма товара' : 'Форма цены'}>
+        <div className="dialog-head"><div><span>PRICEPILOT / ФОРМА</span><h2>{modal === 'product' ? editing ? 'Изменить товар' : 'Новый товар' : 'Добавить цену'}</h2></div><button className="close" onClick={() => setModal('')} aria-label="Закрыть">×</button></div>
+        {modal === 'product'
+          ? <ProductForm initial={editing} onSave={saveProduct} onCancel={() => setModal('')} />
+          : <PriceForm products={products} selectedId={selectedId} onSave={savePrice} onCancel={() => setModal('')} />}
+      </div>
+    </div>}
+  </div>;
 }

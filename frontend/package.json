@@ -1,14 +1,17 @@
 {
   "name": "price-analyzer-frontend",
+  "version": "0.2.0",
   "private": true,
-  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint src",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage --reporter=junit --outputFile=coverage/junit.xml"
+    "test:coverage": "vitest run --coverage",
+    "test:offline": "node --test src/lib/*.offline.test.js",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
@@ -22,6 +25,7 @@
     "eslint": "^9.17.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "globals": "^15.14.0",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "@playwright/test": "^1.56.0"
   }
 }

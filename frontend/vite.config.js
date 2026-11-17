@@ -3,13 +3,23 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    port: 5173,
+    proxy: {
+      '/api': 'http://localhost:8080',
+    },
+  },
   test: {
     environment: 'node',
+    include: ['src/**/*.test.{js,jsx}'],
+    exclude: ['**/*.offline.test.js'],
+    reporters: ['default', 'junit'],
+    outputFile: { junit: 'test-results/vitest-junit.xml' },
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json-summary', 'lcov'],
-      include: ['src/**/*.{js,jsx}'],
-      exclude: ['src/**/*.test.{js,jsx}', 'src/main.jsx'],
+      include: ['src/lib/**/*.js'],
+      exclude: ['src/lib/**/*.test.js'],
+      reporter: ['text', 'html', 'lcov', 'json-summary'],
     },
   },
 });
