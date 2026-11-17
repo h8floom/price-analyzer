@@ -39,7 +39,7 @@ jobs:
           cache-dependency-path: backend/pom.xml
 
       - name: Install frontend dependencies
-        run: npm install --prefix frontend --no-audit --no-fund
+        run: npm ci --prefix frontend --no-audit --no-fund
 
       - name: Lint frontend and save JSON report
         run: |

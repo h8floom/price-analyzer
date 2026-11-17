@@ -1,6 +1,6 @@
 # Price Analyzer
 
-Учебный стартовый репозиторий проекта «Разработка web-приложения анализа цен на товары».
+Учебный проект «Разработка web-приложения анализа цен на товары».
 
 ## Запуск текущей версии
 
@@ -58,7 +58,7 @@ cd backend
 mvn verify
 ```
 
-Для frontend следует добавить `frontend/package-lock.json` в Git после `npm install`. CI использует `npm ci`, чтобы ставить зависимости в соответствии с lock-файлом.
+CI устанавливает зависимости из `frontend/package-lock.json` через `npm ci` и запускает Maven, Vitest и Playwright. Для сквозного прогона локально установите Chromium командой `cd frontend && npx playwright install chromium`, затем выполните `npm run test:e2e` из этой папки.
 
 ## Ветки
 

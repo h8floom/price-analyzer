@@ -11,9 +11,9 @@
 
   <groupId>ru.priceanalyzer</groupId>
   <artifactId>price-analyzer-backend</artifactId>
-  <version>0.1.0</version>
+  <version>0.3.0-rc.1</version>
   <name>price-analyzer-backend</name>
-  <description>Partial REST API for the Price Analyzer course project</description>
+  <description>Price Analyzer course project</description>
 
   <properties>
     <java.version>21</java.version>
@@ -24,6 +24,12 @@
       <groupId>org.apache.pdfbox</groupId>
       <artifactId>pdfbox</artifactId>
       <version>3.0.8</version>
+      <exclusions>
+        <exclusion>
+          <groupId>commons-logging</groupId>
+          <artifactId>commons-logging</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.apache.poi</groupId>
