@@ -1,5 +1,6 @@
 package ru.priceanalyzer.service;
 
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.PreparedStatement;
@@ -172,14 +173,23 @@ public class CatalogService {
     @Transactional
     public Map<String,Integer> importCsv(String input) {
         if (input==null || input.isBlank()) throw new ApiProblem(HttpStatus.BAD_REQUEST, "Файл CSV пуст");
-        List<List<String>> rows=CsvParser.parse(input);
+        if (input.charAt(0) == '\uFEFF') input = input.substring(1);
+        return importRows(CsvParser.parse(input));
+    }
+
+    @Transactional
+    public Map<String,Integer> importXlsx(InputStream input) {
+        return importRows(XlsxPriceReader.read(input));
+    }
+
+    private Map<String,Integer> importRows(List<List<String>> rows) {
         if (rows.isEmpty() || !rows.get(0).equals(List.of("productId","store","price","date")))
-            throw new ApiProblem(HttpStatus.BAD_REQUEST, "Заголовок CSV должен быть productId,store,price,date");
+            throw new ApiProblem(HttpStatus.BAD_REQUEST, "Заголовок файла должен быть productId,store,price,date");
         int imported=0, skipped=0;
         for (int i=1;i<rows.size();i++) {
             List<String> row=rows.get(i);
             if (row.size()==1 && row.get(0).isBlank()) continue;
-            if (row.size()!=4) throw new ApiProblem(HttpStatus.BAD_REQUEST, "Неверное число полей CSV в строке "+(i+1));
+            if (row.size()!=4) throw new ApiProblem(HttpStatus.BAD_REQUEST, "Неверное число полей в строке "+(i+1));
             try {
                 long productId = Long.parseLong(row.get(0));
                 LocalDate day = LocalDate.parse(row.get(3));
@@ -194,7 +204,7 @@ public class CatalogService {
                     imported++;
                 }
             } catch (NumberFormatException | java.time.format.DateTimeParseException ex) {
-                throw new ApiProblem(HttpStatus.BAD_REQUEST,"Некорректные значения CSV в строке "+(i+1));
+                throw new ApiProblem(HttpStatus.BAD_REQUEST,"Некорректные значения в строке "+(i+1));
             }
         }
         return Map.of("imported",imported,"duplicatesSkipped",skipped);

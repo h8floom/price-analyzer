@@ -54,4 +54,9 @@ export const api = {
   importCsv: (text) => mutate('/import/prices', {
     method: 'POST', body: text, headers: { 'Content-Type': 'text/csv' },
   }),
+  importXlsx: (file) => {
+    const body = new FormData();
+    body.set('file', file);
+    return mutate('/import/prices.xlsx', { body });
+  },
 };

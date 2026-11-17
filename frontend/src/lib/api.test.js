@@ -39,6 +39,18 @@ describe('API transport', () => {
     expect(options.body).toContain('productId,store');
   });
 
+  it('uploads XLSX as multipart with a CSRF header', async () => {
+    const fetchMock = vi.fn(async (url) => url.endsWith('/csrf')
+      ? response({ headerName: 'X-CSRF-TOKEN', token: 'test-token' }) : response({ imported: 1 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const file = new File(['fixture'], 'prices.xlsx');
+    await expect(api.importXlsx(file)).resolves.toEqual({ imported: 1 });
+    const [path, options] = fetchMock.mock.calls[1];
+    expect(path).toBe('/api/import/prices.xlsx');
+    expect(options.body.get('file')).toBe(file);
+    expect(options.headers).toEqual({ 'X-CSRF-TOKEN': 'test-token' });
+  });
+
   it('reads errors from the API and supports 204', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => response({ error: 'Конфликт' }, 409)));
     await expect(request('/products')).rejects.toThrow('Конфликт');

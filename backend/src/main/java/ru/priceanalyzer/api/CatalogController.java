@@ -1,5 +1,6 @@
 package ru.priceanalyzer.api;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -9,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import ru.priceanalyzer.domain.PriceEntry;
 import ru.priceanalyzer.domain.Product;
 import ru.priceanalyzer.service.CatalogService;
@@ -68,5 +70,12 @@ public class CatalogController {
     @PostMapping(value="/import/prices",consumes={"text/csv","text/plain"})
     public Map<String,Integer> importCsv(@RequestBody String body){
         return service.importCsv(body);
+    }
+
+    @PostMapping(value="/import/prices.xlsx", consumes=MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String,Integer> importXlsx(@RequestParam MultipartFile file) throws IOException {
+        try (var stream = file.getInputStream()) {
+            return service.importXlsx(stream);
+        }
     }
 }

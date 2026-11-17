@@ -174,7 +174,9 @@ function Workspace({ session, onLogout }) {
     if (!file) return;
     setBusyImport(true); setError('');
     try {
-      const result = await api.importCsv(await file.text());
+      const result = file.name.toLowerCase().endsWith('.xlsx')
+        ? await api.importXlsx(file)
+        : await api.importCsv(await file.text());
       changed(`Импортировано: ${result.imported}. Дубликатов пропущено: ${result.duplicatesSkipped}.`);
     } catch (e) { setError(e.message); }
     finally { setBusyImport(false); event.target.value = ''; }
@@ -204,7 +206,7 @@ function Workspace({ session, onLogout }) {
             <p>{page === 'overview' ? 'Мониторинг цен и выгодных предложений в разных магазинах.'
               : page === 'catalog' ? 'Товары и категории для наблюдения за ценами.'
               : page === 'compare' ? 'Анализ последних цен в магазинах для выбранного товара.'
-              : 'Загрузка и выгрузка истории цен в формате CSV.'}</p></div>
+              : 'Загрузка истории цен из CSV и XLSX, выгрузка в CSV.'}</p></div>
           {page !== 'import' && <button className="btn primary" disabled={!products.length} onClick={() => setModal('price')}>＋ Добавить цену</button>}
         </div>
 
@@ -266,7 +268,7 @@ function Workspace({ session, onLogout }) {
         </>}
 
         {page === 'import' && <div className="import-grid">
-          <section className="panel import-card"><div className="import-icon">⇪</div><h2>Импорт CSV</h2><p>Загрузи новые записи о ценах. Первая строка файла должна содержать заголовки:</p><code>productId,store,price,date</code><label className="file-button"> {busyImport ? 'Загрузка...' : 'Выбрать CSV-файл'}<input type="file" accept=".csv,text/csv" disabled={busyImport} onChange={importFile} /></label><small>Дата: YYYY-MM-DD. Повторные записи пропускаются.</small></section>
+          <section className="panel import-card"><div className="import-icon">⇪</div><h2>Импорт цен</h2><p>Загрузите историю в CSV или XLSX. Укажите заголовки в первой строке.</p><code>productId,store,price,date</code><label className="file-button"> {busyImport ? 'Загрузка...' : 'Выбрать CSV или XLSX'}<input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={busyImport} onChange={importFile} /></label><small>Дата: YYYY-MM-DD. Повторные записи пропускаются.</small></section>
           <section className="panel import-card"><div className="import-icon">⇩</div><h2>Экспорт CSV</h2><p>Сохрани историю цен на компьютер. Выбери все товары или только один.</p><select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}><option value="">Все товары</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><a className="btn secondary download" href={`/api/export/prices.csv${selectedId ? `?productId=${selectedId}` : ''}`}>Скачать CSV</a><small>Файл открывается в Excel и других табличных редакторах.</small></section>
         </div>}
       </div>
