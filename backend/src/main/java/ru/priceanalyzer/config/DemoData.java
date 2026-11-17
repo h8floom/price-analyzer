@@ -16,10 +16,10 @@ public class DemoData implements CommandLineRunner {
     @Override
     public void run(String... args){
         if(!seed || !service.products().isEmpty()) return;
-        long coffee=service.createProduct("Кофе молотый, 250 г","Напитки","упаковка").id();
-        long tea=service.createProduct("Чай чёрный, 100 пакетиков","Напитки","упаковка").id();
-        long chocolate=service.createProduct("Шоколад молочный, 90 г","Сладости","плитка").id();
-        long milk=service.createProduct("Молоко 2,5%, 1 л","Молочные продукты","литр").id();
+        long coffee=service.createProduct("Кофе молотый, 250 г","Напитки","упаковка","").id();
+        long tea=service.createProduct("Чай чёрный, 100 пакетиков","Напитки","упаковка","").id();
+        long chocolate=service.createProduct("Шоколад молочный, 90 г","Сладости","плитка","").id();
+        long milk=service.createProduct("Молоко 2,5%, 1 л","Молочные продукты","литр","").id();
         String[] stores={"Магнит","Пятёрочка","Лента"};
         for(int week=0;week<4;week++){
             LocalDate day=LocalDate.of(2026,10,3).plusDays(7L*week);

@@ -29,10 +29,12 @@ describe('API transport', () => {
   });
 
   it('sends CSV in text/csv format, not as JSON', async () => {
-    const fetchMock = vi.fn(async () => response({ imported: 1 }));
+    const fetchMock = vi.fn(async (url) => url.endsWith('/csrf')
+      ? response({ headerName: 'X-CSRF-TOKEN', token: 'test-token' }) : response({ imported: 1 }));
     vi.stubGlobal('fetch', fetchMock);
     await api.importCsv('productId,store,price,date\n');
-    const [, options] = fetchMock.mock.calls[0];
+    const [, options] = fetchMock.mock.calls[1];
+    expect(options.headers['X-CSRF-TOKEN']).toBe('test-token');
     expect(options.headers['Content-Type']).toBe('text/csv');
     expect(options.body).toContain('productId,store');
   });
@@ -40,7 +42,8 @@ describe('API transport', () => {
   it('reads errors from the API and supports 204', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => response({ error: 'Конфликт' }, 409)));
     await expect(request('/products')).rejects.toThrow('Конфликт');
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 204 })));
+    vi.stubGlobal('fetch', vi.fn(async (url) => url.endsWith('/csrf')
+      ? response({ headerName: 'X-CSRF-TOKEN', token: 'test-token' }) : response(null, 204)));
     await expect(api.deletePrice(10)).resolves.toBeNull();
   });
 

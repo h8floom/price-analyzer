@@ -29,3 +29,8 @@ node_modules/
 
 # Сборка frontend
 frontend/dist/
+# Локальные сводки CI
+/test-metrics/eslint-report.json
+/test-metrics/metrics.json
+/test-metrics/metrics-report.md
+/test-metrics/start_epoch.txt

@@ -4,7 +4,38 @@ function uniqueName(prefix) {
   return `${prefix} ${Date.now()}-${Math.round(Math.random() * 1_000_000)}`;
 }
 
+const password = 'playwright-price-analyzer';
+
+async function post(request, path, options) {
+  const csrf = await request.get('/api/auth/csrf');
+  expect(csrf.ok()).toBe(true);
+  const { headerName, token } = await csrf.json();
+  return request.post(path, { ...options, headers: { [headerName]: token } });
+}
+
+async function signIn(page) {
+  const email = `${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
+  expect((await post(page.request, '/api/auth/register', { data: { email, password } })).status()).toBe(201);
+  expect((await post(page.request, '/api/auth/login', { form: { email, password } })).status()).toBe(204);
+}
+
+test('пользователь регистрируется, сохраняет сеанс и выходит', async ({ page }) => {
+  expect((await page.request.get('/api/products')).status()).toBe(401);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Создать аккаунт' }).click();
+  await page.getByLabel('Электронная почта').fill('browser-signup@example.test');
+  await page.getByLabel('Пароль').fill(password);
+  await page.getByRole('button', { name: 'Зарегистрироваться' }).click();
+  await expect(page.getByRole('heading', { name: 'Обзор цен' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Обзор цен' })).toBeVisible();
+  await page.getByRole('button', { name: 'Выйти' }).click();
+  await expect(page.getByRole('heading', { name: 'Вход в Price Analyzer' })).toBeVisible();
+  expect((await page.request.get('/api/products')).status()).toBe(401);
+});
+
 test('пользователь добавляет, ищет, редактирует и удаляет товар', async ({ page }) => {
+  await signIn(page);
   const name = uniqueName('E2E Каталог');
   const updated = `${name} обновлён`;
   await page.goto('/');
@@ -18,6 +49,7 @@ test('пользователь добавляет, ищет, редактиру�
   await dialog.getByLabel('Название').fill(name);
   await dialog.getByLabel('Категория').fill('Тестовая категория');
   await dialog.getByLabel('Единица').fill('шт.');
+  await dialog.getByLabel('Описание').fill('Проверка сохранения описания');
   await dialog.getByRole('button', { name: 'Сохранить товар' }).click();
   await expect(page.getByRole('status')).toContainText('Товар добавлен');
   const search = page.getByRole('textbox', { name: /Поиск/ });
@@ -30,14 +62,16 @@ test('пользователь добавляет, ищет, редактиру�
   await search.fill(updated);
   const updatedRow = page.getByRole('row').filter({ hasText: updated });
   await expect(updatedRow).toBeVisible();
+  await expect(updatedRow).toContainText('Проверка сохранения описания');
   page.once('dialog', async (alert) => alert.accept());
   await updatedRow.getByRole('button', { name: 'Удалить' }).click();
   await expect(page.getByRole('row').filter({ hasText: updated })).toHaveCount(0);
 });
 
-test('пользователь добавляет две цены и сравнивает предложения', async ({ page, request }) => {
+test('пользователь добавляет две цены и сравнивает предложения', async ({ page }) => {
+  await signIn(page);
   const name = uniqueName('E2E Сравнение');
-  const res = await request.post('http://127.0.0.1:8080/api/products', {
+  const res = await post(page.request, '/api/products', {
     data: { name, category: 'Тесты', unit: 'шт.' },
   });
   expect(res.status()).toBe(201);
@@ -70,9 +104,10 @@ test('пользователь добавляет две цены и сравн�
   await expect(page.getByRole('img', { name: /Линейный график динамики цен/ })).toBeVisible();
 });
 
-test('пользователь загружает CSV и скачивает историю', async ({ page, request }) => {
+test('пользователь загружает CSV и скачивает историю', async ({ page }) => {
+  await signIn(page);
   const name = uniqueName('E2E Импорт');
-  const response = await request.post('http://127.0.0.1:8080/api/products', {
+  const response = await post(page.request, '/api/products', {
     data: { name, category: 'Тесты', unit: 'шт.' },
   });
   expect(response.status()).toBe(201);

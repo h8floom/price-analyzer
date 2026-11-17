@@ -1,6 +1,23 @@
-# Price Analyzer — starter for Lab 5
+# Price Analyzer
 
 Учебный стартовый репозиторий проекта «Разработка web-приложения анализа цен на товары».
+
+## Запуск текущей версии
+
+Нужны JDK 21, Maven и Node.js 22. Из корня проекта в двух терминалах:
+
+```sh
+mvn -f backend/pom.xml spring-boot:run
+```
+
+```sh
+npm ci --prefix frontend
+npm run dev --prefix frontend
+```
+
+Откройте http://localhost:5173 и создайте аккаунт. Доступ к каталогу и операциям с ценами получают зарегистрированные пользователи после входа. Данные сохраняются между запусками в локальной H2. Для PostgreSQL создайте отдельную БД, укажите `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` и запустите backend с `SPRING_PROFILES_ACTIVE=postgres`.
+
+Для восстановления пароля задайте `SPRING_MAIL_HOST`, `SPRING_MAIL_PORT`, `SPRING_MAIL_USERNAME`, `SPRING_MAIL_PASSWORD`, `APP_AUTH_FROM_ADDRESS` и `APP_AUTH_RESET_BASE_URL`. Последний параметр — адрес интерфейса по HTTPS. HTTP-адрес принимается для локального теста на loopback. При развёртывании за HTTPS-прокси задайте `SESSION_COOKIE_SECURE=true`. Почтовые секреты передавайте через окружение.
 
 ## Стек
 

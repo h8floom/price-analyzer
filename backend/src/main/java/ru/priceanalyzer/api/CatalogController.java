@@ -19,7 +19,7 @@ public class CatalogController {
     private final CatalogService service;
     public CatalogController(CatalogService service) {this.service=service;}
 
-    public record ProductInput(String name, String category, String unit) {}
+    public record ProductInput(String name, String category, String unit, String description) {}
     public record PriceInput(Long productId, String store, BigDecimal price, LocalDate date) {}
 
     @GetMapping("/health")
@@ -29,11 +29,11 @@ public class CatalogController {
     @PostMapping("/products")
     @ResponseStatus(HttpStatus.CREATED)
     public Product createProduct(@RequestBody ProductInput p){
-        return service.createProduct(p.name(),p.category(),p.unit());
+        return service.createProduct(p.name(),p.category(),p.unit(),p.description());
     }
     @PutMapping("/products/{id}")
     public Product updateProduct(@PathVariable long id,@RequestBody ProductInput p){
-        return service.updateProduct(id,p.name(),p.category(),p.unit());
+        return service.updateProduct(id,p.name(),p.category(),p.unit(),p.description());
     }
     @DeleteMapping("/products/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)

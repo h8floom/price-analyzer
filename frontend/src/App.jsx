@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from './lib/api.js';
+import AccountForm from './AccountForm.jsx';
 import { calculateStats, dateLabel, formatPrice, getSeries } from './lib/priceUtils.js';
 
 const NAV = [
@@ -51,7 +52,7 @@ function Metric({ title, value, caption, icon }) {
 }
 
 function ProductForm({ initial, onCancel, onSave }) {
-  const [form, setForm] = useState(initial || { name: '', category: 'Продукты', unit: 'шт.' });
+  const [form, setForm] = useState(initial || { name: '', category: 'Продукты', unit: 'шт.', description: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   async function submit(event) {
@@ -65,6 +66,7 @@ function ProductForm({ initial, onCancel, onSave }) {
     <label>Название<input required maxLength="240" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Например, Кофе молотый, 250 г" /></label>
     <label>Категория<input required maxLength="120" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></label>
     <label>Единица<input required maxLength="64" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} /></label>
+    <label>Описание<textarea maxLength={2000} rows={3} value={form.description ?? ''} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
     {error && <div className="field-error">{error}</div>}
     <div className="form-actions"><button type="button" className="btn secondary" onClick={onCancel}>Отмена</button><button className="btn primary" disabled={busy} type="submit">{busy ? 'Сохранение...' : 'Сохранить товар'}</button></div>
   </form>;
@@ -99,7 +101,7 @@ function PriceForm({ products, selectedId, onCancel, onSave }) {
   </form>;
 }
 
-export default function App() {
+function Workspace({ session, onLogout }) {
   const [page, setPage] = useState('overview');
   const [products, setProducts] = useState([]);
   const [selectedId, setSelectedId] = useState('');
@@ -180,7 +182,7 @@ export default function App() {
 
   return <div className="app">
     <aside className="sidebar">
-      <div className="logo"><span>₽</span><div><b>PricePilot</b><small>АНАЛИЗ ЦЕН</small></div></div>
+      <div className="logo"><span>₽</span><div><b>Price Analyzer</b><small>АНАЛИЗ ЦЕН</small></div></div>
       <div className="nav-caption">РАБОЧАЯ ОБЛАСТЬ</div>
       <nav aria-label="Навигация">{NAV.map(([id, icon, label]) =>
         <button key={id} onClick={() => { setPage(id); setMessage(''); }} className={`nav-link ${page === id ? 'active' : ''}`}>
@@ -189,7 +191,12 @@ export default function App() {
     </aside>
 
     <main className="workspace">
-      <header className="topbar"><div>Рабочая область <span>/</span> <b>{NAV.find(([id]) => id === page)?.[2]}</b></div></header>
+      <header className="topbar">
+        <div>Рабочая область <span>/</span> <b>{NAV.find(([id]) => id === page)?.[2]}</b></div>
+        <div className="account-bar"><span>{session.email}</span><button className="btn secondary" onClick={async () => {
+          try { await api.logout(); onLogout(); } catch (failure) { setError(failure.message); }
+        }}>Выйти</button></div>
+      </header>
       <div className="content">
         <div className="heading">
           <div><div className="eyebrow">PRICE ANALYTICS</div>
@@ -235,7 +242,7 @@ export default function App() {
             <button className="btn secondary" onClick={() => { setEditing(null); setModal('product'); }}>＋ Новый товар</button></div>
           <div className="search"><span>⌕</span><input aria-label="Поиск товаров" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск по названию и категории..." /></div>
           <div className="table-scroll"><table><thead><tr><th>ТОВАР</th><th>КАТЕГОРИЯ</th><th>ЕДИНИЦА</th><th>ДЕЙСТВИЯ</th></tr></thead><tbody>
-            {filtered.map((p) => <tr key={p.id}><td><b>{p.name}</b></td><td><span className="chip">{p.category}</span></td><td>{p.unit}</td><td className="actions"><button onClick={() => { setSelectedId(String(p.id)); setPage('compare'); }}>Сравнить</button><button onClick={() => { setEditing(p); setModal('product'); }}>Изменить</button><button className="danger-btn" onClick={() => deleteProduct(p)}>Удалить</button></td></tr>)}
+            {filtered.map((p) => <tr key={p.id}><td><b>{p.name}</b>{p.description && <p className="product-description">{p.description}</p>}</td><td><span className="chip">{p.category}</span></td><td>{p.unit}</td><td className="actions"><button onClick={() => { setSelectedId(String(p.id)); setPage('compare'); }}>Сравнить</button><button onClick={() => { setEditing(p); setModal('product'); }}>Изменить</button><button className="danger-btn" onClick={() => deleteProduct(p)}>Удалить</button></td></tr>)}
           </tbody></table>{!filtered.length && <div className="empty">Товары не найдены.</div>}</div>
         </section>}
 
@@ -274,4 +281,40 @@ export default function App() {
       </div>
     </div>}
   </div>;
+}
+
+export default function App() {
+  const [session, setSession] = useState(undefined);
+  const [problem, setProblem] = useState('');
+  const [resetToken, setResetToken] = useState(() => new URLSearchParams(location.hash.slice(1)).get('reset'));
+  useEffect(() => {
+    if (resetToken) history.replaceState(null, '', location.pathname + location.search);
+  }, [resetToken]);
+
+  useEffect(() => {
+    let active = true;
+    const expired = () => setSession(null);
+    window.addEventListener('price-analyzer:session-expired', expired);
+    api.session().then(
+      (value) => { if (active) setSession(value); },
+      (failure) => {
+        if (!active) return;
+        if (failure.status !== 401) setProblem(failure.message);
+        setSession(null);
+      },
+    );
+    return () => {
+      active = false;
+      window.removeEventListener('price-analyzer:session-expired', expired);
+    };
+  }, []);
+
+  if (session === undefined && !resetToken) {
+    return <main className="account-shell"><p role="status">Проверяем сеанс…</p></main>;
+  }
+  if (!session || resetToken) {
+    return <AccountForm resetToken={resetToken} onReset={() => { setResetToken(null); setSession(null); }}
+      initialError={problem} onSession={setSession} />;
+  }
+  return <Workspace session={session} onLogout={() => setSession(null)} />;
 }

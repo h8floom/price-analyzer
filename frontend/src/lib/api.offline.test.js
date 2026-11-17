@@ -21,7 +21,10 @@ test('POST sends correct JSON and handles created response', async () => {
   const oldFetch = globalThis.fetch;
   try {
     globalThis.fetch = async (url, options) => {
+      if (url.endsWith('/csrf')) return { ok: true, status: 200, headers: { get: () => 'application/json' },
+          json: async () => ({ headerName: 'X-CSRF-TOKEN', token: 'test-token' }) };
       assert.equal(url, '/api/products');
+      assert.equal(options.headers['X-CSRF-TOKEN'], 'test-token');
       assert.equal(options.method, 'POST');
       assert.equal(options.headers['Content-Type'], 'application/json');
       assert.deepEqual(JSON.parse(options.body), { name: 'Кофе', category: 'Напитки', unit: 'шт.' });
@@ -42,7 +45,8 @@ test('API error becomes readable Error', async () => {
 test('no-content response is null', async () => {
   const oldFetch = globalThis.fetch;
   try {
-    globalThis.fetch = async () => ({ ok: true, status: 204 });
+    globalThis.fetch = async (url) => url.endsWith('/csrf') ? { ok: true, status: 200, headers: { get: () => 'application/json' },
+          json: async () => ({ headerName: 'X-CSRF-TOKEN', token: 'test-token' }) } : { ok: true, status: 204 };
     assert.equal(await api.deleteProduct(1), null);
   } finally { globalThis.fetch = oldFetch; }
 });

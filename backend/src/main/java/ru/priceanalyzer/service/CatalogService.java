@@ -24,7 +24,7 @@ public class CatalogService {
     private final JdbcTemplate jdbc;
 
     private static final RowMapper<Product> PRODUCT_ROW = (rs, row) ->
-        new Product(rs.getLong("id"), rs.getString("name"), rs.getString("category"), rs.getString("unit"));
+        new Product(rs.getLong("id"), rs.getString("name"), rs.getString("category"), rs.getString("unit"), rs.getString("description"));
     private static final RowMapper<PriceEntry> PRICE_ROW = (rs, row) ->
         new PriceEntry(rs.getLong("id"), rs.getLong("product_id"), rs.getString("store"),
                 rs.getBigDecimal("price"), rs.getDate("observed_on").toLocalDate());
@@ -39,17 +39,17 @@ public class CatalogService {
     }
 
     public List<Product> products() {
-        return jdbc.query("SELECT id, name, category, unit FROM products ORDER BY id", PRODUCT_ROW);
+        return jdbc.query("SELECT id, name, category, unit, description FROM products ORDER BY id", PRODUCT_ROW);
     }
 
     public Product product(long id) {
-        return jdbc.query("SELECT id, name, category, unit FROM products WHERE id=?", PRODUCT_ROW, id)
+        return jdbc.query("SELECT id, name, category, unit, description FROM products WHERE id=?", PRODUCT_ROW, id)
                 .stream().findFirst()
                 .orElseThrow(() -> new ApiProblem(HttpStatus.NOT_FOUND, "Товар не найден"));
     }
 
     @Transactional
-    public Product createProduct(String name, String category, String unit) {
+    public Product createProduct(String name, String category, String unit, String description) {
         name = required(name, "Название", 240);
         category = required(category, "Категория", 120);
         unit = required(unit, "Единица", 64);
@@ -58,19 +58,19 @@ public class CatalogService {
             throw new ApiProblem(HttpStatus.CONFLICT, "Товар с таким названием уже существует");
         }
         GeneratedKeyHolder key = new GeneratedKeyHolder();
-        final String n=name, c=category, u=unit;
+        final String n=name, c=category, u=unit, details=validatedDescription(description);
         jdbc.update(con -> {
             PreparedStatement ps=con.prepareStatement(
-                "INSERT INTO products(name,category,unit) VALUES(?,?,?)", new String[]{"id"});
-            ps.setString(1,n); ps.setString(2,c); ps.setString(3,u);
+                "INSERT INTO products(name,category,unit,description) VALUES(?,?,?,?)", new String[]{"id"});
+            ps.setString(1,n); ps.setString(2,c); ps.setString(3,u); ps.setString(4,details);
             return ps;
         }, key);
         return product(Objects.requireNonNull(key.getKey()).longValue());
     }
 
     @Transactional
-    public Product updateProduct(long id, String name, String category, String unit) {
-        product(id);
+    public Product updateProduct(long id, String name, String category, String unit, String description) {
+        Product current = product(id);
         name = required(name, "Название", 240);
         category = required(category, "Категория", 120);
         unit = required(unit, "Единица", 64);
@@ -78,8 +78,17 @@ public class CatalogService {
                 Integer.class, name, id) > 0) {
             throw new ApiProblem(HttpStatus.CONFLICT, "Товар с таким названием уже существует");
         }
-        jdbc.update("UPDATE products SET name=?, category=?, unit=? WHERE id=?", name, category, unit, id);
+        jdbc.update("UPDATE products SET name=?, category=?, unit=?, description=? WHERE id=?",
+            name, category, unit, description == null ? current.description() : validatedDescription(description), id);
         return product(id);
+    }
+
+    private String validatedDescription(String value) {
+        String description = value == null ? "" : value.strip();
+        if (description.length() > 2000) {
+            throw new ApiProblem(HttpStatus.BAD_REQUEST, "Описание товара должно содержать не более 2000 символов");
+        }
+        return description;
     }
 
     @Transactional
