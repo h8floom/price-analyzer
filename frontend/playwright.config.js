@@ -36,7 +36,6 @@ export default defineConfig({
         SPRING_DATASOURCE_DRIVER_CLASS_NAME: 'org.h2.Driver',
         SPRING_DATASOURCE_USERNAME: 'sa',
         SPRING_DATASOURCE_PASSWORD: '',
-        APP_DEMO_SEED: 'false',
         APP_AUTH_ORIGIN: 'http://127.0.0.1:5173',
         APP_JWT_SECRET: randomBytes(32).toString('base64'),
         SPRING_SQL_INIT_DATA_LOCATIONS: new URL('./e2e/admin-fixture.sql', import.meta.url).href,
