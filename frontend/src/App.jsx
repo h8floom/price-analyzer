@@ -3,11 +3,13 @@ import { api } from './lib/api.js';
 import AccountForm from './AccountForm.jsx';
 import Reports from './Reports.jsx';
 import AdminSettings from './AdminSettings.jsx';
+import Favorites, { FavoriteButton } from './Favorites.jsx';
 import { calculateStats, dateLabel, formatPrice, getSeries } from './lib/priceUtils.js';
 
 const NAV = [
   ['overview', '▦', 'Обзор'],
   ['catalog', '▤', 'Каталог товаров'],
+  ['favorites', '♡', 'Избранное'],
   ['compare', '↗', 'Сравнение цен'],
   ['import', '⇪', 'Импорт / экспорт'],
   ['reports', '▥', 'Отчёты'],
@@ -167,6 +169,17 @@ function Workspace({ session, onLogout }) {
   const [to, setTo] = useState('');
   const [tick, setTick] = useState(0);
   const [busyImport, setBusyImport] = useState(false);
+  const [favorites, setFavorites] = useState(null);
+  const [busyFavorites, setBusyFavorites] = useState(() => new Set());
+  const [favoriteError, setFavoriteError] = useState('');
+  const [favoriteAttempt, setFavoriteAttempt] = useState(0);
+
+  useEffect(() => {
+    const load = new AbortController();
+    api.favorites(load.signal).then((ids) => setFavorites(new Set(ids)))
+      .catch((failure) => { if (!load.signal.aborted) setFavoriteError(failure.message); });
+    return () => load.abort();
+  }, [favoriteAttempt]);
 
   useEffect(() => {
     let ignore = false;
@@ -198,6 +211,35 @@ function Workspace({ session, onLogout }) {
   const selectedProduct = products.find((p) => String(p.id) === String(selectedId));
   const averageAll = calculateStats(allPrices).average;
   const lastDate = allPrices.length ? [...allPrices].sort((a,b) => b.date.localeCompare(a.date))[0].date : null;
+
+  function compare(productId) {
+    setSelectedId(String(productId));
+    setPage('compare');
+  }
+  async function toggleFavorite(id, saved) {
+    setBusyFavorites((previous) => new Set(previous).add(id));
+    try {
+      await api.setFavorite(id, saved);
+      setFavorites((previous) => {
+        const next = new Set(previous);
+        if (saved) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    } catch (failure) {
+      setError(failure.message);
+    } finally {
+      setBusyFavorites((previous) => {
+        const remaining = new Set(previous);
+        remaining.delete(id);
+        return remaining;
+      });
+    }
+  }
+  function retryFavorites() {
+    setFavoriteError('');
+    setFavoriteAttempt((attempt) => attempt + 1);
+  }
 
   function changed(text) { setMessage(text); setError(''); setTick((old) => old + 1); }
   async function saveProduct(form) {
@@ -256,6 +298,7 @@ function Workspace({ session, onLogout }) {
             <h1>{page === 'overview' ? 'Обзор цен' : NAV.find(([id]) => id === page)?.[2]}</h1>
             <p>{page === 'overview' ? 'Мониторинг цен и выгодных предложений в разных магазинах.'
               : page === 'catalog' ? 'Товары и категории для наблюдения за ценами.'
+              : page === 'favorites' ? 'Товары, за ценами которых вы следите.'
               : page === 'compare' ? 'Анализ последних цен в магазинах для выбранного товара.'
               : page === 'reports' ? 'Сводные изменения цен по товарам, категориям и магазинам.'
               : page === 'import' && (admin ? 'Загрузка истории из CSV и XLSX, выгрузка в CSV.' : 'Выгрузка истории цен в CSV.')}</p></div>
@@ -295,10 +338,23 @@ function Workspace({ session, onLogout }) {
           <div className="panel-head"><div><h2>Все товары</h2><p>Сейчас в каталоге: {products.length}</p></div>
             {admin && <button className="btn secondary" onClick={() => { setEditing(null); setModal('product'); }}>＋ Новый товар</button>}</div>
           <div className="search"><span>⌕</span><input aria-label="Поиск товаров" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск по названию и категории..." /></div>
+          {favoriteError && <div className="alert error" role="alert">{favoriteError} <button type="button" onClick={retryFavorites}>Повторить загрузку избранного</button></div>}
           <div className="table-scroll"><table><thead><tr><th>ТОВАР</th><th>КАТЕГОРИЯ</th><th>ЕДИНИЦА</th><th>ДЕЙСТВИЯ</th></tr></thead><tbody>
-            {filtered.map((p) => <tr key={p.id}><td><b>{p.name}</b>{p.description && <p className="product-description">{p.description}</p>}</td><td><span className="chip">{p.category}</span></td><td>{p.unit}</td><td className="actions"><button onClick={() => { setSelectedId(String(p.id)); setPage('compare'); }}>Сравнить</button>{admin && <><button onClick={() => { setEditing(p); setModal('product'); }}>Изменить</button><button className="danger-btn" onClick={() => deleteProduct(p)}>Удалить</button></>}</td></tr>)}
+            {filtered.map((p) => <tr key={p.id}><td>
+              <div className="catalog-product">
+                <FavoriteButton product={p} saved={favorites?.has(p.id) ?? false}
+                  disabled={!favorites || busyFavorites.has(p.id)} onToggle={toggleFavorite} />
+                <div><b>{p.name}</b>{p.description && <p className="product-description">{p.description}</p>}</div>
+              </div></td>
+              <td><span className="chip">{p.category}</span></td><td>{p.unit}</td>
+              <td className="actions"><button onClick={() => compare(p.id)}>Сравнить</button>
+                {admin && <><button onClick={() => { setEditing(p); setModal('product'); }}>Изменить</button>
+                  <button className="danger-btn" onClick={() => deleteProduct(p)}>Удалить</button></>}</td></tr>)}
           </tbody></table>{!filtered.length && <div className="empty">Товары не найдены.</div>}</div>
         </section>}
+
+        {page === 'favorites' && <Favorites products={products} favorites={favorites} busy={busyFavorites}
+          onToggle={toggleFavorite} onCompare={compare} onCatalog={() => setPage('catalog')} loadError={favoriteError} retry={retryFavorites} />}
 
         {page === 'compare' && <>
           <section className="panel selector"><div><h2>Выбранный товар</h2><p>Для каждого магазина берётся последняя цена за период</p></div><select aria-label="Товар для сравнения" value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></section>
@@ -380,5 +436,5 @@ export default function App() {
     return <AccountForm resetToken={resetToken} onReset={() => { setResetToken(null); setSession(null); }}
       initialError={problem} onSession={setSession} />;
   }
-  return <Workspace session={session} onLogout={() => setSession(null)} />;
+  return <Workspace key={session.email} session={session} onLogout={() => setSession(null)} />;
 }

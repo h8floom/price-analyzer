@@ -18,6 +18,12 @@ async function signIn(page) {
   expect((await post(page.request, '/api/auth/login', { form: { email, password } })).status()).toBe(204);
 }
 
+async function createUser(page) {
+  const email = `test-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
+  expect((await post(page.request, '/api/auth/register', { data: { email, password } })).status()).toBe(201);
+  expect((await post(page.request, '/api/auth/login', { form: { email, password } })).status()).toBe(204);
+}
+
 test('пользователь регистрируется, сохраняет сеанс и выходит', async ({ page }) => {
   expect((await page.request.get('/api/products')).status()).toBe(401);
   await page.goto('/');
@@ -36,6 +42,39 @@ test('пользователь регистрируется, сохраняет 
   await expect(page.getByRole('heading', { name: 'Новый пароль' })).toBeVisible();
   await expect(page).toHaveURL(/\/$/);
   expect((await page.request.get('/api/products')).status()).toBe(401);
+});
+
+test('избранное переживает повторный вход и скрыто от другого аккаунта', async ({ page, browser }) => {
+  const admin = await browser.newPage();
+  const name = uniqueName('Кофе для избранного');
+  try {
+    await signIn(admin);
+    const created = await post(admin.request, '/api/products', {
+      data: { name, category: 'Напитки', unit: 'шт.' },
+    });
+    expect(created.status()).toBe(201);
+  } finally {
+    await admin.close();
+  }
+
+  await createUser(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Каталог товаров' }).click();
+  const heart = page.getByRole('button', { name: `Избранное: ${name}` });
+  await heart.click();
+  await expect(heart).toHaveAttribute('aria-pressed', 'true');
+  await page.reload();
+  await page.getByRole('navigation').getByRole('button', { name: 'Избранное', exact: true }).click();
+  await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.getByRole('button', { name: 'Выйти' }).click();
+  await expect(page.getByRole('heading', { name: 'Вход в Price Analyzer' })).toBeVisible();
+  await createUser(page);
+  await page.reload();
+  await page.getByRole('navigation').getByRole('button', { name: 'Избранное', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Избранное пока пусто' })).toBeVisible();
+  await expect(page.getByRole('heading', { name, exact: true })).toHaveCount(0);
 });
 
 test('пользователь добавляет, ищет, редактирует и удаляет товар', async ({ page }) => {

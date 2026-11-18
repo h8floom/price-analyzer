@@ -22,6 +22,12 @@ CREATE TABLE IF NOT EXISTS accounts (
 );
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS role VARCHAR(5) NOT NULL DEFAULT 'USER'
     CHECK (role IN ('USER', 'ADMIN'));
+CREATE TABLE IF NOT EXISTS favorites (
+    account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    product_id BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    PRIMARY KEY(account_id, product_id)
+);
+CREATE INDEX IF NOT EXISTS ix_favorites_product ON favorites(product_id);
 CREATE TABLE IF NOT EXISTS password_resets (
     account_id BIGINT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
     token_hash VARCHAR(64) UNIQUE NOT NULL,

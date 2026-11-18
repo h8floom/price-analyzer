@@ -45,3 +45,25 @@ dialog.dialog::backdrop { background: #2029418c; }
 
 .retention .form-grid { max-width: 22rem; margin-top: 16px; }
 .retention .form-grid button { justify-self: start; min-height: 44px; }
+
+.personal-icon {
+  display: inline-grid; flex: none; place-items: center; position: relative;
+  width: 44px; height: 44px; padding: 0; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: #53617b; touch-action: manipulation;
+}
+.personal-icon svg { width: 21px; height: 21px; }
+.personal-icon:hover, .personal-icon[aria-pressed="true"], .personal-icon[aria-current="page"] {
+  background: #f0f1ff; color: #484eac;
+}
+.personal-icon:focus-visible, .personal-control:focus-visible { outline: 2px solid #474bb2; outline-offset: 2px; }
+.personal-control { min-height: 44px; }
+.catalog-product { display: flex; align-items: center; gap: 8px; margin-left: -8px; }
+.catalog-product b { color: #333a50; }
+.favorite-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 16px; margin: 0; padding: 0; list-style: none; }
+.favorite-card { display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 12px; margin: 0; }
+.favorite-card h2 { overflow-wrap: anywhere; font-size: 16px; }
+.favorite-card p { font-size: 12px; overflow-wrap: anywhere; }
+.favorite-card .favorite-meta { margin: 0 0 8px; color: #53617b; }
+.favorite-card .personal-control { justify-self: start; }
+.personal-empty p { max-width: 45ch; font-size: 13px; color: #58647c; }
+.personal-empty .personal-control { margin-top: 16px; }
