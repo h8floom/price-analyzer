@@ -8,6 +8,8 @@ config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/price-analyzer"
 settings="$config_dir/dev.conf"
 api_pid=
 web_pid=
+mail_pid=
+with_mailpit=false
 pg_started=false
 temp_settings=
 
@@ -17,8 +19,10 @@ cleanup() {
     trap '' INT TERM
     [[ -z "$web_pid" ]] || kill "$web_pid" 2>/dev/null || true
     [[ -z "$api_pid" ]] || kill "$api_pid" 2>/dev/null || true
+    [[ -z "$mail_pid" ]] || kill "$mail_pid" 2>/dev/null || true
     [[ -z "$web_pid" ]] || wait "$web_pid" 2>/dev/null || true
     [[ -z "$api_pid" ]] || wait "$api_pid" 2>/dev/null || true
+    [[ -z "$mail_pid" ]] || wait "$mail_pid" 2>/dev/null || true
     if "$pg_started"; then
         "$pg_ctl" -D "$pg_data" -m fast -w stop
     fi
@@ -97,9 +101,10 @@ read_settings() {
 case "${1:-}" in
     setup) prompt_setup; exit ;;
     seed) [[ "$#" == 1 ]] || fail 'Использование: dev-up.sh seed' ;;
+    --mailpit) [[ "$#" == 1 ]] || fail 'Использование: dev-up.sh --mailpit'; with_mailpit=true ;;
     admin) [[ "${2:-}" =~ ^(status|create|reset)$ && "$#" == 2 ]] || fail 'Использование: dev-up.sh admin {status|create|reset}' ;;
     '') ;;
-    *) fail 'Использование: dev-up.sh [setup|seed|admin {status|create|reset}]' ;;
+    *) fail 'Использование: dev-up.sh [--mailpit|setup|seed|admin {status|create|reset}]' ;;
 esac
 
 read_settings
@@ -107,8 +112,15 @@ check_url
 
 site=http://localhost:5173
 api=http://127.0.0.1:8080
-if [[ -z "${1:-}" ]]; then
-    for port in 5173 8080; do
+if [[ -z "${1:-}" ]] || "$with_mailpit"; then
+    ports=(5173 8080)
+    if "$with_mailpit"; then
+        ports+=(1025 8025)
+        command -v mailpit >/dev/null || fail 'Для запуска почты установите Mailpit: brew install mailpit'
+        [[ "$(stat -f '%Lp' "$config_dir")" == 700 && -O "$config_dir" && ! -L "$config_dir" ]] ||
+            fail "Для локальной почты каталог '$config_dir' должен принадлежать вам и иметь права 700."
+    fi
+    for port in "${ports[@]}"; do
         if lsof -nP -iTCP:"$port" -sTCP:LISTEN || nc -z -w 1 127.0.0.1 "$port" || nc -z -w 1 ::1 "$port"; then
             fail "Порт $port занят. Остановите прежний запуск проекта и повторите ./scripts/dev-up.sh."
         fi
@@ -167,18 +179,36 @@ fi
 
 [[ -x frontend/node_modules/.bin/vite ]] || npm ci --prefix frontend
 
-(boot --spring.profiles.active=postgres --server.address=127.0.0.1 --server.port=8080) &
+server_args=(--spring.profiles.active=postgres --server.address=127.0.0.1 --server.port=8080)
+if "$with_mailpit"; then
+    (umask 077; exec env -i PATH="$PATH" mailpit --listen 127.0.0.1:8025 --smtp 127.0.0.1:1025 \
+        --disable-version-check --database "$config_dir/mailpit.db") &
+    mail_pid=$!
+    server_args+=(--spring.mail.host=127.0.0.1 --spring.mail.port=1025 --spring.mail.protocol=smtp
+        --spring.mail.username= --spring.mail.password= --spring.mail.default-encoding=UTF-8
+        --spring.mail.properties.mail.smtp.auth=false --spring.mail.properties.mail.smtp.starttls.enable=false
+        --spring.mail.properties.mail.smtp.starttls.required=false
+        --app.auth.from-address=price-analyzer@example.test --app.auth.reset-base-url="$site")
+fi
+
+services_running() {
+    kill -0 "$api_pid" "$web_pid" 2>/dev/null && { [[ -z "$mail_pid" ]] || kill -0 "$mail_pid" 2>/dev/null; }
+}
+
+(boot "${server_args[@]}") &
 api_pid=$!
 (cd frontend && exec node node_modules/vite/bin/vite.js --host localhost) &
 web_pid=$!
 
 for ((attempt=0; attempt<90; attempt++)); do
-    kill -0 "$api_pid" "$web_pid" 2>/dev/null || fail 'Запуск приложения прервался. См. сообщения выше.'
+    services_running || fail 'Запуск приложения прервался. См. сообщения выше.'
     if curl --noproxy '*' -fs --max-time 2 "$api/api/health" >/dev/null &&
         curl --noproxy '*' -fs --max-time 2 "$site/" >/dev/null &&
-        curl --noproxy '*' -fs --max-time 2 "$site/api/health" >/dev/null; then
+        curl --noproxy '*' -fs --max-time 2 "$site/api/health" >/dev/null &&
+        { ! "$with_mailpit" || curl --noproxy '*' -fs --max-time 2 http://127.0.0.1:8025/readyz >/dev/null; }; then
         printf '\nPrice Analyzer: %s\nДля остановки нажмите Ctrl+C.\n' "$site"
-        while kill -0 "$api_pid" "$web_pid" 2>/dev/null; do sleep 1; done
+        if "$with_mailpit"; then printf 'Mailpit: http://127.0.0.1:8025\n'; fi
+        while services_running; do sleep 1; done
         fail 'Один из серверов завершился.'
     fi
     sleep 1
