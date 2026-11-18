@@ -42,3 +42,6 @@ dialog.dialog::backdrop { background: #2029418c; }
 @media (max-width: 540px) {
   .axis { font-size: 18px; }
 }
+
+.retention .form-grid { max-width: 22rem; margin-top: 16px; }
+.retention .form-grid button { justify-self: start; min-height: 44px; }

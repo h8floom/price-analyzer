@@ -51,13 +51,13 @@ public class Accounts implements UserDetailsService {
     }
 
     public void register(String email, String password) {
-        jdbc.update("INSERT INTO accounts(email,password_hash) VALUES (?,?)", normalized(email), hashPassword(password));
+        jdbc.update("INSERT INTO accounts(email,password_hash,role) VALUES (?,?,'USER')", normalized(email), hashPassword(password));
     }
 
     @Override
     public UserDetails loadUserByUsername(String email) {
-        return jdbc.query("SELECT email,password_hash FROM accounts WHERE email=?", (rs, row) ->
-                User.withUsername(rs.getString("email")).password(rs.getString("password_hash")).roles("USER").build(),
+        return jdbc.query("SELECT email,password_hash,role FROM accounts WHERE email=?", (rs, row) ->
+                User.withUsername(rs.getString("email")).password(rs.getString("password_hash")).roles(rs.getString("role")).build(),
                 normalized(email)).stream().findFirst()
             .orElseThrow(() -> new UsernameNotFoundException("Account not found"));
     }

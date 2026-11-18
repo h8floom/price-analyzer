@@ -20,9 +20,18 @@ CREATE TABLE IF NOT EXISTS accounts (
     email VARCHAR(254) NOT NULL UNIQUE,
     password_hash VARCHAR(100) NOT NULL
 );
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS role VARCHAR(5) NOT NULL DEFAULT 'USER'
+    CHECK (role IN ('USER', 'ADMIN'));
 CREATE TABLE IF NOT EXISTS password_resets (
     account_id BIGINT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
     token_hash VARCHAR(64) UNIQUE NOT NULL,
     issued_at BIGINT NOT NULL,
     expires_at BIGINT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS price_admin_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    retention_days INTEGER CHECK (retention_days >= 0)
+);
+INSERT INTO price_admin_settings (id)
+    SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM price_admin_settings WHERE id = 1);

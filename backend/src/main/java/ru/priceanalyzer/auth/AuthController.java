@@ -5,12 +5,11 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
-import java.security.Principal;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.session.SessionInformation;
 import org.springframework.security.core.session.SessionRegistry;
-import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,8 +41,10 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    public Map<String, String> me(Principal principal) {
-        return Map.of("email", principal.getName());
+    public Map<String, String> me(Authentication authentication) {
+        boolean admin = authentication.getAuthorities().stream()
+            .anyMatch(authority -> authority.getAuthority().equals("ROLE_ADMIN"));
+        return Map.of("email", authentication.getName(), "role", admin ? "ADMIN" : "USER");
     }
 
     @PostMapping("/register")
@@ -62,7 +63,6 @@ public class AuthController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void reset(@Valid @RequestBody ResetPassword request) {
         String email = accounts.reset(request.token(), request.password());
-        var principal = User.withUsername(email).password("").roles("USER").build();
-        sessions.getAllSessions(principal, false).forEach(SessionInformation::expireNow);
+        sessions.getAllSessions(accounts.loadUserByUsername(email), false).forEach(SessionInformation::expireNow);
     }
 }

@@ -45,6 +45,8 @@ export const api = {
   prices: (productId) => request(`/prices${productId ? `?productId=${productId}` : ''}`),
   createPrice: (value) => mutate('/prices', { method: 'POST', body: JSON.stringify(value) }),
   deletePrice: (id) => mutate(`/prices/${id}`, { method: 'DELETE' }),
+  retention: () => request('/admin/settings/retention'),
+  setRetention: (days) => mutate('/admin/settings/retention', { method: 'PUT', body: JSON.stringify({ days }) }),
   analysis: (id, from = '', to = '') => {
     const query = new URLSearchParams();
     if (from) query.set('from', from);

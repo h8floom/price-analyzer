@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './lib/api.js';
 import AccountForm from './AccountForm.jsx';
 import Reports from './Reports.jsx';
+import AdminSettings from './AdminSettings.jsx';
 import { calculateStats, dateLabel, formatPrice, getSeries } from './lib/priceUtils.js';
 
 const NAV = [
@@ -10,6 +11,7 @@ const NAV = [
   ['compare', '↗', 'Сравнение цен'],
   ['import', '⇪', 'Импорт / экспорт'],
   ['reports', '▥', 'Отчёты'],
+  ['settings', '⚙', 'Управление'],
 ];
 
 function LineChart({ history }) {
@@ -150,6 +152,7 @@ function Modal({ label, onClose, children }) {
 }
 
 function Workspace({ session, onLogout }) {
+  const admin = session.role === 'ADMIN';
   const [page, setPage] = useState('overview');
   const [products, setProducts] = useState([]);
   const [selectedId, setSelectedId] = useState('');
@@ -234,7 +237,7 @@ function Workspace({ session, onLogout }) {
     <aside className="sidebar">
       <div className="logo"><span>₽</span><div><b>Price Analyzer</b></div></div>
       <div className="nav-caption">РАБОЧАЯ ОБЛАСТЬ</div>
-      <nav aria-label="Навигация">{NAV.map(([id, icon, label]) =>
+      <nav aria-label="Навигация">{NAV.filter(([id]) => admin || id !== 'settings').map(([id, icon, label]) =>
         <button key={id} onClick={() => { setPage(id); setMessage(''); }} aria-current={page === id ? 'page' : undefined} className={`nav-link ${page === id ? 'active' : ''}`}>
           <span className="nav-icon" aria-hidden="true">{icon}</span>{label}
         </button>)}</nav>
@@ -250,13 +253,13 @@ function Workspace({ session, onLogout }) {
       <div className="content">
         <div className="heading">
           <div>
-            <h1>{page === 'overview' ? 'Обзор цен' : page === 'catalog' ? 'Каталог товаров' : page === 'compare' ? 'Сравнение цен' : page === 'reports' ? 'Отчёты' : 'Импорт и экспорт'}</h1>
+            <h1>{page === 'overview' ? 'Обзор цен' : NAV.find(([id]) => id === page)?.[2]}</h1>
             <p>{page === 'overview' ? 'Мониторинг цен и выгодных предложений в разных магазинах.'
               : page === 'catalog' ? 'Товары и категории для наблюдения за ценами.'
               : page === 'compare' ? 'Анализ последних цен в магазинах для выбранного товара.'
               : page === 'reports' ? 'Сводные изменения цен по товарам, категориям и магазинам.'
-              : 'Загрузка истории цен из CSV и XLSX, выгрузка в CSV.'}</p></div>
-          {!['import', 'reports'].includes(page) && <button className="btn primary" disabled={!products.length} onClick={() => setModal('price')}>＋ Добавить цену</button>}
+              : page === 'import' && (admin ? 'Загрузка истории из CSV и XLSX, выгрузка в CSV.' : 'Выгрузка истории цен в CSV.')}</p></div>
+          {admin && ['overview', 'catalog', 'compare'].includes(page) && <button className="btn primary" disabled={!products.length} onClick={() => setModal('price')}>＋ Добавить цену</button>}
         </div>
 
         {error && <div className="alert error" role="alert"><b>Ошибка:</b> {error}<button aria-label="Закрыть ошибку" onClick={() => setError('')}>×</button></div>}
@@ -290,10 +293,10 @@ function Workspace({ session, onLogout }) {
 
         {page === 'catalog' && <section className="panel">
           <div className="panel-head"><div><h2>Все товары</h2><p>Сейчас в каталоге: {products.length}</p></div>
-            <button className="btn secondary" onClick={() => { setEditing(null); setModal('product'); }}>＋ Новый товар</button></div>
+            {admin && <button className="btn secondary" onClick={() => { setEditing(null); setModal('product'); }}>＋ Новый товар</button>}</div>
           <div className="search"><span>⌕</span><input aria-label="Поиск товаров" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск по названию и категории..." /></div>
           <div className="table-scroll"><table><thead><tr><th>ТОВАР</th><th>КАТЕГОРИЯ</th><th>ЕДИНИЦА</th><th>ДЕЙСТВИЯ</th></tr></thead><tbody>
-            {filtered.map((p) => <tr key={p.id}><td><b>{p.name}</b>{p.description && <p className="product-description">{p.description}</p>}</td><td><span className="chip">{p.category}</span></td><td>{p.unit}</td><td className="actions"><button onClick={() => { setSelectedId(String(p.id)); setPage('compare'); }}>Сравнить</button><button onClick={() => { setEditing(p); setModal('product'); }}>Изменить</button><button className="danger-btn" onClick={() => deleteProduct(p)}>Удалить</button></td></tr>)}
+            {filtered.map((p) => <tr key={p.id}><td><b>{p.name}</b>{p.description && <p className="product-description">{p.description}</p>}</td><td><span className="chip">{p.category}</span></td><td>{p.unit}</td><td className="actions"><button onClick={() => { setSelectedId(String(p.id)); setPage('compare'); }}>Сравнить</button>{admin && <><button onClick={() => { setEditing(p); setModal('product'); }}>Изменить</button><button className="danger-btn" onClick={() => deleteProduct(p)}>Удалить</button></>}</td></tr>)}
           </tbody></table>{!filtered.length && <div className="empty">Товары не найдены.</div>}</div>
         </section>}
 
@@ -310,17 +313,18 @@ function Workspace({ session, onLogout }) {
               {latest.map((p, i) => <tr key={p.id}><td><b>{p.store}</b>{i === 0 && <span className="best inline">Минимум</span>}</td><td className={i === 0 ? 'green-text' : ''}><b>{formatPrice(p.price)}</b></td><td>{p.date}</td><td>{i === 0 ? '—' : `+${formatPrice(Number(p.price) - Number(stats.min))}`}</td></tr>)}
             </tbody></table>{!latest.length && <div className="empty">Для выбранного товара нет цен.</div>}</div>
           </section>
-          <section className="panel"><div className="panel-head"><div><h2>История записей</h2><p>Удаление ошибочного измерения</p></div></div>
+          <section className="panel"><div className="panel-head"><div><h2>История записей</h2></div></div>
             <div className="table-scroll"><table><thead><tr><th>МАГАЗИН</th><th>ЦЕНА</th><th>ДАТА</th><th></th></tr></thead><tbody>
-              {(analysis?.history || []).map((p) => <tr key={p.id}><td>{p.store}</td><td>{formatPrice(p.price)}</td><td>{p.date}</td><td className="actions"><button className="danger-btn" onClick={() => deletePrice(p)}>Удалить</button></td></tr>)}
+              {(analysis?.history || []).map((p) => <tr key={p.id}><td>{p.store}</td><td>{formatPrice(p.price)}</td><td>{p.date}</td><td className="actions">{admin && <button className="danger-btn" onClick={() => deletePrice(p)}>Удалить</button>}</td></tr>)}
             </tbody></table></div>
           </section>
         </>}
 
         {page === 'reports' && <Reports products={products} prices={allPrices} />}
+        {page === 'settings' && admin && <AdminSettings />}
 
         {page === 'import' && <div className="import-grid">
-          <section className="panel import-card"><div className="import-icon">⇪</div><h2>Импорт цен</h2><p>Загрузите историю в CSV или XLSX. Укажите заголовки в первой строке.</p><code>productId,store,price,date</code><label className="file-button"> {busyImport ? 'Загрузка...' : 'Выбрать CSV или XLSX'}<input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={busyImport} onChange={importFile} /></label><small>Дата: YYYY-MM-DD. Повторные записи пропускаются.</small></section>
+          {admin && <section className="panel import-card"><div className="import-icon">⇪</div><h2>Импорт цен</h2><p>Загрузите историю в CSV или XLSX. Укажите заголовки в первой строке.</p><code>productId,store,price,date</code><label className="file-button"> {busyImport ? 'Загрузка...' : 'Выбрать CSV или XLSX'}<input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={busyImport} onChange={importFile} /></label><small>Дата: YYYY-MM-DD. Повторные записи пропускаются.</small></section>}
           <section className="panel import-card"><div className="import-icon">⇩</div><h2>Экспорт CSV</h2><p>Сохрани историю цен на компьютер. Выбери все товары или только один.</p><select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}><option value="">Все товары</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><a className="btn secondary download" href={`/api/export/prices.csv${selectedId ? `?productId=${selectedId}` : ''}`}>Скачать CSV</a><small>Файл открывается в Excel и других табличных редакторах.</small></section>
         </div>}
       </div>

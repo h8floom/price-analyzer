@@ -14,8 +14,7 @@ async function post(request, path, options) {
 }
 
 async function signIn(page) {
-  const email = `${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
-  expect((await post(page.request, '/api/auth/register', { data: { email, password } })).status()).toBe(201);
+  const email = 'playwright-admin@example.test';
   expect((await post(page.request, '/api/auth/login', { form: { email, password } })).status()).toBe(204);
 }
 

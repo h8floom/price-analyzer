@@ -27,10 +27,15 @@ export default defineConfig({
       cwd: '..',
       url: 'http://127.0.0.1:8080/api/health',
       timeout: 180_000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       env: {
+        SPRING_PROFILES_ACTIVE: 'e2e',
         SPRING_DATASOURCE_URL: 'jdbc:h2:mem:price_lab7_e2e;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE',
+        SPRING_DATASOURCE_DRIVER_CLASS_NAME: 'org.h2.Driver',
+        SPRING_DATASOURCE_USERNAME: 'sa',
+        SPRING_DATASOURCE_PASSWORD: '',
         APP_DEMO_SEED: 'false',
+        SPRING_SQL_INIT_DATA_LOCATIONS: new URL('./e2e/admin-fixture.sql', import.meta.url).href,
       },
     },
     {
@@ -38,7 +43,7 @@ export default defineConfig({
       cwd: '.',
       url: 'http://127.0.0.1:5173',
       timeout: 90_000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
     },
   ],
 });
