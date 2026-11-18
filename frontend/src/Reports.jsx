@@ -50,7 +50,7 @@ export default function Reports({ products, prices }) {
 
   return <section className="panel reports-panel">
     <h2>Динамика цен</h2>
-    <form className="form-grid" onSubmit={submit}>
+    <form className="form-grid" onSubmit={submit} aria-busy={pending}>
       <fieldset disabled={pending} className="report-filters">
         <label><span id="report-group-label">Тип отчёта</span><select aria-labelledby="report-group-label" name="group" value={filters.group} onChange={change}>
           <option value="category">По категориям</option>
@@ -79,7 +79,7 @@ export default function Reports({ products, prices }) {
       <p className="helper">Изменение между первой и последней ценой товара в магазине. В среднем учитываются серии с двумя датами или больше.</p>
       {!filters.productId && <p className="helper">Выберите товар, чтобы включить график его цен по магазинам в PDF и Excel.</p>}
       {report.rows.length === 0 ? <p className="empty" role="status">За выбранный период недостаточно записей для расчёта.</p>
-        : <div className="table-scroll"><table><thead><tr>
+        : <div className="table-scroll" role="region" aria-label="Результаты отчёта" tabIndex={0}><table><thead><tr>
           <th scope="col">Группа</th><th scope="col">Серий</th>
           <th scope="col">Изменение, ₽</th><th scope="col">Изменение, %</th>
         </tr></thead><tbody>{report.rows.map((row) => <tr key={row.label}>

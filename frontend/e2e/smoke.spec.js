@@ -109,6 +109,7 @@ test('избранное переживает повторный вход и с�
   await expect(page.getByRole('heading', { name: 'Вход в Price Analyzer' })).toBeVisible();
   await createUser(page);
   await page.reload();
+  await page.getByRole('button', { name: 'Открыть меню' }).click();
   await page.getByRole('navigation').getByRole('button', { name: 'Избранное', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Избранное пока пусто' })).toBeVisible();
   await expect(page.getByRole('heading', { name, exact: true })).toHaveCount(0);
@@ -221,7 +222,7 @@ test('пользователь добавляет, ищет, редактиру�
   await dialog.getByLabel('Описание').fill('Проверка сохранения описания');
   await dialog.getByRole('button', { name: 'Сохранить товар' }).click();
   await expect(page.getByRole('status')).toContainText('Товар добавлен');
-  const search = page.getByRole('textbox', { name: /Поиск/ });
+  const search = page.getByRole('searchbox', { name: 'Поиск товаров' });
   await search.fill(name);
   const row = page.getByRole('row').filter({ hasText: name });
   await expect(row).toBeVisible();
@@ -269,7 +270,7 @@ test('пользователь добавляет цены и сравнивае
   }
   await expect(page.getByRole('heading', { name: 'Сравнение магазинов' })).toBeVisible();
   const offers = page.getByRole('table').filter({
-    has: page.getByRole('columnheader', { name: 'РАЗНИЦА', exact: true }),
+    has: page.getByRole('columnheader', { name: 'Разница', exact: true }),
   });
   await expect(offers.getByRole('row', { name: /E2E Магазин А/ })).toBeVisible();
   const bestOffer = offers.getByRole('row', { name: /E2E Магазин Б/ });
@@ -277,7 +278,7 @@ test('пользователь добавляет цены и сравнивае
   await page.getByLabel('Начало периода').fill('2026-10-15');
   await expect(page.getByRole('row').filter({ hasText: '2026-10-01' })).toHaveCount(0);
   await page.getByRole('button', { name: /Обзор/ }).click();
-  const chart = page.getByRole('img', { name: /Линейный график динамики цен/ });
+  const chart = page.getByRole('group', { name: /Линейный график динамики цен/ });
   await expect(chart).toBeVisible();
   await expect(chart.locator('circle')).toHaveCount(2);
   await chart.locator('circle').filter({ hasText: '99,00' }).focus();
@@ -320,7 +321,7 @@ test('приёмка аналитики: последние цены, разни
   await page.goto('/');
   await page.getByRole('button', { name: 'Сравнение цен' }).click();
   await page.getByLabel('Товар для сравнения').selectOption({ label: priced.name });
-  const offers = page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: 'РАЗНИЦА' }) });
+  const offers = page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: 'Разница' }) });
   const rows = offers.locator('tbody tr');
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toContainText(/Контроль маркет.*90,00\s*₽/);
@@ -346,7 +347,7 @@ test('приёмка аналитики: одна линия на магазин
   await page.goto('/');
   const selector = page.getByLabel('Товар для графика');
   await selector.selectOption({ label: priced.name });
-  const chart = page.getByRole('img', { name: 'Линейный график динамики цен' });
+  const chart = page.getByRole('group', { name: 'Линейный график динамики цен' });
   await expect(chart.locator('circle')).toHaveCount(4);
   await expect(chart.locator('polyline')).toHaveCount(2);
   await chart.locator('circle').filter({ hasText: /110,00/ }).focus();
@@ -365,7 +366,7 @@ test('приёмка аналитики: при смене товара пред
   await page.getByRole('button', { name: 'Сравнение цен' }).click();
   const selector = page.getByLabel('Товар для сравнения');
   await selector.selectOption({ label: priced.name });
-  const offers = page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: 'РАЗНИЦА' }) });
+  const offers = page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: 'Разница' }) });
   await expect(offers.locator('tbody tr')).toHaveCount(2);
 
   let allowResponse;
@@ -407,6 +408,37 @@ test('CSV API сохраняет импорт и оба формата эксп�
   const bytes = await excel.body();
   expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
   expect(bytes.toString('utf8')).toContain(`productId;productName;store;price;date\r\n${id};"${name}";"E2E CSV Магазин";147,25;2026-10-21\r\n`);
+});
+
+test('мобильное меню и точки графика доступны с клавиатуры', async ({ page, browser }) => {
+  const admin = await browser.newPage();
+  const { priced } = await seedComparison(admin);
+  await admin.close();
+  await createUser(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const opener = page.getByRole('button', { name: 'Открыть меню' });
+  await opener.focus();
+  await page.keyboard.press('Enter');
+  const nav = page.getByRole('navigation', { name: 'Навигация' });
+  await expect(nav.getByRole('button', { name: 'Обзор' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(opener).toBeFocused();
+  await opener.click();
+  await nav.getByRole('button', { name: 'Сравнение цен' }).click();
+  await expect(page.getByRole('heading', { name: 'Сравнение цен', exact: true })).toBeFocused();
+  await expect(nav).toBeHidden();
+  await page.getByLabel('Товар для сравнения').selectOption({ label: priced.name });
+  const chart = page.getByRole('group', { name: 'Линейный график динамики цен' });
+  await expect(chart.locator('polyline')).toHaveCount(2);
+  await expect(chart.locator('polyline[stroke-dasharray]')).toHaveCount(1);
+  await expect(chart.locator('circle[tabindex="0"]')).toHaveCount(1);
+  const first = chart.locator('circle[data-chart-point="0"]');
+  await first.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(chart.locator('circle[data-chart-point="1"]')).toBeFocused();
+  await expect(page.locator('.chart-probe')).toContainText('2026-10-10');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
 
 test('ADMIN скачивает шаблон и повторно загружает XLSX, USER выгружает историю', async ({ page, browser }) => {

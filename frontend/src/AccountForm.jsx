@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from './lib/api.js';
+import InterfaceIcon from './InterfaceIcon.jsx';
 
 const headings = {
   login: 'Вход в Price Analyzer',
@@ -62,9 +63,14 @@ export default function AccountForm({ resetToken, initialError, onSession, onRes
 
   return <main className="account-shell">
     <section className="panel account-panel" aria-labelledby="account-heading">
+      <div className="account-brand">
+        <span className="brand-mark"><InterfaceIcon name="tag" /></span>
+        {mode !== 'login' && <b translate="no">Price Analyzer</b>}
+      </div>
       <h1 id="account-heading">{headings[mode]}</h1>
-      <form key={mode} className="form-grid" onSubmit={submit}>
-        {mode !== 'reset' && <label>Электронная почта<input name="email" type="email" autoComplete="email" maxLength="254" required /></label>}
+      <form key={mode} className="form-grid" onSubmit={submit} aria-busy={busy}>
+        {mode !== 'reset' && <label>Электронная почта<input name="email" type="email" autoComplete="email"
+          maxLength="254" spellCheck={false} required /></label>}
         {mode !== 'request' && <label>Пароль<input name="password" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'login' ? undefined : 12} required /></label>}
         {(mode === 'register' || mode === 'reset') && <p className="helper">Минимум 12 символов, максимум 72 байта.</p>}
         {error && <p className="field-error" role="alert">{error}</p>}

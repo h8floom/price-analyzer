@@ -22,10 +22,10 @@ export default function Favorites({ products, favorites, busy, onToggle, onCompa
     <button className="btn secondary personal-control" onClick={onCatalog}>Открыть каталог</button>
   </section>;
   return <ul className="favorite-grid">
-    {saved.map((product) => <li key={product.id} className="panel favorite-card">
+    {saved.map((product) => <li key={product.id} className="favorite-card">
       <div>
-        <p className="favorite-meta">{product.category} · {product.unit}</p>
         <h2>{product.name}</h2>
+        <p className="favorite-meta">{product.category} / {product.unit}</p>
         {product.description && <p>{product.description}</p>}
       </div>
       <FavoriteButton product={product} saved disabled={busy.has(product.id)} onToggle={onToggle} />

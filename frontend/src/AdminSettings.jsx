@@ -41,6 +41,6 @@ export default function AdminSettings() {
             aria-describedby="retention-help" value={days} onChange={(event) => setDays(event.target.value)} /></label>
           <button className="btn primary" disabled={busy}>{busy ? 'Сохранение…' : 'Сохранить срок'}</button>
         </form>}
-    {status && <p role="status">{status}</p>}
+    {status && <p className="alert success" role="status">{status}</p>}
   </section>;
 }

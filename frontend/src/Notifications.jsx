@@ -100,7 +100,7 @@ export default function Notifications({ revision, onRead, onFavorites }) {
 
   return <>
     {error && <div role="alert" className="alert error">
-      {error}<button type="button" onClick={() => { setError(''); setAttempt((value) => value + 1); }}>Обновить</button>
+      <span>{error}</span><button className="text-btn" type="button" onClick={() => { setError(''); setAttempt((value) => value + 1); }}>Обновить</button>
     </div>}
     {!inbox ? !error && <p role="status">Загрузка уведомлений…</p> : <>
       <section className="panel notification-settings">
