@@ -21,15 +21,16 @@ test('POST sends correct JSON and handles created response', async () => {
   const oldFetch = globalThis.fetch;
   try {
     globalThis.fetch = async (url, options) => {
-      if (url.endsWith('/csrf')) return { ok: true, status: 200, headers: { get: () => 'application/json' },
-          json: async () => ({ headerName: 'X-CSRF-TOKEN', token: 'test-token' }) };
+      if (url.endsWith('/auth/login')) return { ok: true, status: 200, headers: { get: () => 'application/json' },
+          json: async () => ({ accessToken: 'fixture-access', user: { email: 'offline@example.test', role: 'ADMIN' } }) };
       assert.equal(url, '/api/products');
-      assert.equal(options.headers['X-CSRF-TOKEN'], 'test-token');
+      assert.equal(options.headers.Authorization, 'Bearer fixture-access');
       assert.equal(options.method, 'POST');
       assert.equal(options.headers['Content-Type'], 'application/json');
       assert.deepEqual(JSON.parse(options.body), { name: 'Кофе', category: 'Напитки', unit: 'шт.' });
       return { ok: true, status: 201, headers: { get: () => 'application/json' }, json: async () => ({ id: 10 }) };
     };
+    await api.login({ email: 'offline@example.test', password: 'fixture-password' });
     assert.equal((await api.createProduct({ name: 'Кофе', category: 'Напитки', unit: 'шт.' })).id, 10);
   } finally { globalThis.fetch = oldFetch; }
 });
@@ -45,8 +46,7 @@ test('API error becomes readable Error', async () => {
 test('no-content response is null', async () => {
   const oldFetch = globalThis.fetch;
   try {
-    globalThis.fetch = async (url) => url.endsWith('/csrf') ? { ok: true, status: 200, headers: { get: () => 'application/json' },
-          json: async () => ({ headerName: 'X-CSRF-TOKEN', token: 'test-token' }) } : { ok: true, status: 204 };
+    globalThis.fetch = async () => ({ ok: true, status: 204 });
     assert.equal(await api.deleteProduct(1), null);
   } finally { globalThis.fetch = oldFetch; }
 });

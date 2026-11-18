@@ -9,6 +9,7 @@ export default function Reports({ products, prices }) {
   const [report, setReport] = useState(null);
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const categories = [...new Set(products.map((product) => product.category))].sort();
   const stores = [...new Set(prices.map((price) => price.store))].sort();
 
@@ -33,6 +34,18 @@ export default function Reports({ products, prices }) {
     setFilters((previous) => ({ ...previous, [name]: value }));
     setReport(null);
     setError('');
+  }
+
+  async function download(format) {
+    setDownloading(true);
+    setError('');
+    try {
+      await api.downloadReport(format, report.query);
+    } catch (failure) {
+      setError(failure.message);
+    } finally {
+      setDownloading(false);
+    }
   }
 
   return <section className="panel reports-panel">
@@ -69,8 +82,8 @@ export default function Reports({ products, prices }) {
           <td>{number.format(row.averageChange)}</td><td>{number.format(row.averagePercent)}</td>
         </tr>)}</tbody></table></div>}
       <div className="report-downloads">
-        <a className="btn secondary download" href={`/api/reports.pdf?${report.query}`}>Скачать PDF</a>
-        <a className="btn secondary download" href={`/api/reports.xlsx?${report.query}`}>Скачать Excel</a>
+        <button type="button" className="btn secondary download" disabled={downloading} onClick={() => download('pdf')}>Скачать PDF</button>
+        <button type="button" className="btn secondary download" disabled={downloading} onClick={() => download('xlsx')}>Скачать Excel</button>
       </div>
     </>}
   </section>;

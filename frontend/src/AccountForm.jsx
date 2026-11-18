@@ -51,8 +51,7 @@ export default function AccountForm({ resetToken, initialError, onSession, onRes
         setNotice('Пароль обновлён. Теперь войдите с новым паролем.');
       } else {
         if (mode === 'register') await api.register(form);
-        await api.login(form);
-        onSession(await api.session());
+        onSession(await api.login(form));
       }
     } catch (failure) {
       setError(failure.message);

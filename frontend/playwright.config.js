@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { randomBytes } from 'node:crypto';
 
 export default defineConfig({
   testDir: './e2e',
@@ -16,7 +17,8 @@ export default defineConfig({
   outputDir: 'test-results/playwright-artifacts',
   use: {
     baseURL: 'http://127.0.0.1:5173',
-    trace: 'retain-on-failure',
+    // Network traces include Authorization and Set-Cookie headers.
+    trace: 'off',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
@@ -35,6 +37,8 @@ export default defineConfig({
         SPRING_DATASOURCE_USERNAME: 'sa',
         SPRING_DATASOURCE_PASSWORD: '',
         APP_DEMO_SEED: 'false',
+        APP_AUTH_ORIGIN: 'http://127.0.0.1:5173',
+        APP_JWT_SECRET: randomBytes(32).toString('base64'),
         SPRING_SQL_INIT_DATA_LOCATIONS: new URL('./e2e/admin-fixture.sql', import.meta.url).href,
       },
     },

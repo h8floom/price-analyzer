@@ -450,7 +450,10 @@ function Workspace({ session, onLogout }) {
 
         {page === 'import' && <div className="import-grid">
           {admin && <section className="panel import-card"><div className="import-icon">⇪</div><h2>Импорт цен</h2><p>Загрузите историю в CSV или XLSX. Укажите заголовки в первой строке.</p><code>productId,store,price,date</code><label className="file-button"> {busyImport ? 'Загрузка...' : 'Выбрать CSV или XLSX'}<input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={busyImport} onChange={importFile} /></label><small>Дата: YYYY-MM-DD. Повторные записи пропускаются.</small></section>}
-          <section className="panel import-card"><div className="import-icon">⇩</div><h2>Экспорт CSV</h2><p>Сохрани историю цен на компьютер. Выбери все товары или только один.</p><select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}><option value="">Все товары</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><a className="btn secondary download" href={`/api/export/prices.csv${selectedId ? `?productId=${selectedId}` : ''}`}>Скачать CSV</a><small>Файл открывается в Excel и других табличных редакторах.</small></section>
+          <section className="panel import-card"><div className="import-icon">⇩</div><h2>Экспорт CSV</h2><p>Сохрани историю цен на компьютер. Выбери все товары или только один.</p><select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}><option value="">Все товары</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+            <button type="button" className="btn secondary download"
+              onClick={() => api.downloadCsv(selectedId).catch((failure) => setError(failure.message))}>Скачать CSV</button>
+            <small>Файл открывается в Excel и других табличных редакторах.</small></section>
         </div>}
       </div>
     </main>
@@ -484,8 +487,10 @@ export default function App() {
   useEffect(() => {
     let active = true;
     const expired = () => setSession(null);
+    const updated = (event) => setSession(event.detail);
     window.addEventListener('price-analyzer:session-expired', expired);
-    api.session().then(
+    window.addEventListener('price-analyzer:session-changed', updated);
+    api.restoreSession().then(
       (value) => { if (active) setSession(value); },
       (failure) => {
         if (!active) return;
@@ -496,6 +501,7 @@ export default function App() {
     return () => {
       active = false;
       window.removeEventListener('price-analyzer:session-expired', expired);
+      window.removeEventListener('price-analyzer:session-changed', updated);
     };
   }, []);
 
@@ -506,5 +512,5 @@ export default function App() {
     return <AccountForm resetToken={resetToken} onReset={() => { setResetToken(null); setSession(null); }}
       initialError={problem} onSession={setSession} />;
   }
-  return <Workspace key={session.email} session={session} onLogout={() => setSession(null)} />;
+  return <Workspace key={`${session.email}:${session.role}`} session={session} onLogout={() => setSession(null)} />;
 }

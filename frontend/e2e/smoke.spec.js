@@ -6,6 +6,9 @@ function uniqueName(prefix) {
 }
 
 const password = 'playwright-price-analyzer';
+const origin = 'http://127.0.0.1:5173';
+const browserAuthHeaders = { Origin: origin, 'X-Price-Auth': '1' };
+const credentials = new WeakMap();
 
 async function capture(page, name) {
   if (process.env.LAB8_SCREENSHOT_DIR) {
@@ -16,26 +19,44 @@ async function capture(page, name) {
 async function signInForm(page, email) {
   await page.getByLabel('Электронная почта').fill(email);
   await page.getByLabel('Пароль').fill(password);
+  const received = page.waitForResponse((response) => response.url().endsWith('/api/auth/login'));
   await page.getByRole('button', { name: 'Войти', exact: true }).click();
+  const response = await received;
+  expect(response.status()).toBe(200);
+  await rememberToken(page.request, response);
   await expect(page.getByRole('heading', { name: 'Обзор цен' })).toBeVisible();
 }
 
 async function post(request, path, options) {
-  const csrf = await request.get('/api/auth/csrf');
-  expect(csrf.ok()).toBe(true);
-  const { headerName, token } = await csrf.json();
-  return request.post(path, { ...options, headers: { [headerName]: token } });
+  return request.post(path, { ...options, headers: bearer(request) });
+}
+
+function bearer(request) {
+  const token = credentials.get(request);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function rememberToken(request, response) {
+  const { accessToken, tokenType } = await response.json();
+  expect(tokenType === 'Bearer' && typeof accessToken === 'string' && accessToken.split('.').length === 3).toBe(true);
+  credentials.set(request, accessToken);
+}
+
+async function signInApi(request, email) {
+  const response = await request.post('/api/auth/login', { headers: browserAuthHeaders, data: { email, password } });
+  expect(response.status()).toBe(200);
+  await rememberToken(request, response);
 }
 
 async function signIn(page) {
   const email = 'playwright-admin@example.test';
-  expect((await post(page.request, '/api/auth/login', { form: { email, password } })).status()).toBe(204);
+  await signInApi(page.request, email);
 }
 
 async function createUser(page) {
   const email = `test-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
   expect((await post(page.request, '/api/auth/register', { data: { email, password } })).status()).toBe(201);
-  expect((await post(page.request, '/api/auth/login', { form: { email, password } })).status()).toBe(204);
+  await signInApi(page.request, email);
 }
 
 test('пользователь регистрируется, сохраняет сеанс и выходит', async ({ page }) => {
@@ -46,7 +67,9 @@ test('пользователь регистрируется, сохраняет 
   await page.getByLabel('Пароль').fill(password);
   await page.getByRole('button', { name: 'Зарегистрироваться' }).click();
   await expect(page.getByRole('heading', { name: 'Обзор цен' })).toBeVisible();
+  const refreshed = page.waitForResponse((response) => response.url().endsWith('/api/auth/refresh'));
   await page.reload();
+  expect((await refreshed).status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'Обзор цен' })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('.logo b')).toBeHidden();
@@ -123,7 +146,7 @@ test('избранный товар получает уведомление о �
     const startingPoll = page.waitForResponse((response) => response.url().endsWith('/api/notifications/unread'));
     await signInForm(page, email);
     expect(await (await startingPoll).json()).toEqual({ count: 0 });
-    expect(await (await page.request.get('/api/auth/me')).json()).toMatchObject({ role: 'USER' });
+    expect(await (await page.request.get('/api/auth/me', { headers: bearer(page.request) })).json()).toMatchObject({ role: 'USER' });
     await expect(page.getByRole('button', { name: /Добавить цену|Управление/ })).toHaveCount(0);
     await page.getByRole('button', { name: 'Каталог товаров' }).click();
     await page.getByRole('button', { name: `Избранное: ${product}` }).click();
@@ -131,7 +154,7 @@ test('избранный товар получает уведомление о �
     await expect(page.getByRole('heading', { name: product })).toBeVisible();
     await capture(page, '01-user-favorites');
 
-    expect(await (await admin.request.get('/api/auth/me')).json()).toMatchObject({ role: 'ADMIN' });
+    expect(await (await admin.request.get('/api/auth/me', { headers: bearer(admin.request) })).json()).toMatchObject({ role: 'ADMIN' });
     await admin.getByRole('button', { name: 'Управление' }).click();
     await expect(admin.getByLabel('Дней хранения')).toHaveValue('0');
     await capture(admin, '02-admin-settings');
@@ -165,6 +188,16 @@ test('избранный товар получает уведомление о �
     await page.getByLabel('Получать уведомления').selectOption('DECREASE_ONLY');
     await expect(page.getByLabel('Получать уведомления')).toHaveValue('DECREASE_ONLY');
     await capture(page, '05-user-read-settings');
+    const refresh = (await page.context().cookies()).find(({ name }) => name === 'pa_refresh');
+    expect(Boolean(refresh?.httpOnly && refresh.sameSite === 'Strict')).toBe(true);
+    expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(0);
+    await page.getByRole('button', { name: 'Выйти' }).click();
+    await expect(page.getByRole('heading', { name: 'Вход в Price Analyzer' })).toBeVisible();
+    expect((await page.context().cookies()).some(({ name }) => name === 'pa_refresh')).toBe(false);
+    const replay = await page.request.post('/api/auth/refresh', {
+      headers: { ...browserAuthHeaders, Cookie: `pa_refresh=${refresh.value}` },
+    });
+    expect(replay.status()).toBe(401);
   } finally {
     await admin.close();
   }
@@ -276,7 +309,7 @@ test('пользователь загружает CSV и скачивает ис
   await expect(page.getByRole('status')).toContainText('Импортировано: 1');
   await page.locator('.import-card select').selectOption({ value: String(id) });
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('link', { name: 'Скачать CSV' }).click();
+  await page.getByRole('button', { name: 'Скачать CSV' }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe('prices.csv');
   const fs = await import('node:fs/promises');
@@ -306,7 +339,7 @@ test('пользователь формирует отчёт и выгружае
   await expect(row).toContainText('20,00');
   for (const [label, filename] of [['Скачать PDF', 'price-report.pdf'], ['Скачать Excel', 'price-report.xlsx']]) {
     const pending = page.waitForEvent('download');
-    await page.getByRole('link', { name: label }).click();
+    await page.getByRole('button', { name: label }).click();
     expect((await pending).suggestedFilename()).toBe(filename);
   }
 });
