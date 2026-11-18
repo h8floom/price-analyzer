@@ -8,6 +8,7 @@ import java.io.ByteArrayInputStream;
 import java.time.LocalDate;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.apache.poi.ss.usermodel.DateUtil;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -65,19 +66,47 @@ class ReportApiTest {
 
     @Test
     void exportsEquivalentExcelAndCyrillicPdf() throws Exception {
-        byte[] sheet = mvc.perform(get("/api/reports.xlsx").param("group","category"))
+        byte[] sheet = mvc.perform(get("/api/reports.xlsx").param("group","category").param("productId","701"))
             .andExpect(status().isOk()).andExpect(header().string("Content-Disposition","attachment; filename=price-report.xlsx"))
             .andReturn().getResponse().getContentAsByteArray();
         try (var book = new XSSFWorkbook(new ByteArrayInputStream(sheet))) {
-            var row = book.getSheetAt(0).getRow(1);
+            var summary = book.getSheet("Сводка");
+            var row = summary.getRow(14);
             assertThat(row.getCell(0).getStringCellValue()).isEqualTo("Напитки");
             assertThat(row.getCell(2).getNumericCellValue()).isEqualTo(10);
+            assertThat(summary.getRow(5).getCell(2).getNumericCellValue()).isEqualTo(273.33);
+            assertThat(summary.getRow(5).getCell(3).getNumericCellValue()).isEqualTo(3);
+            var raw = book.getSheet("Исходные данные");
+            assertThat(raw.getLastRowNum()).isEqualTo(5);
+            assertThat(raw.getRow(1).getCell(1).getStringCellValue()).isEqualTo("Кофе");
+            assertThat(DateUtil.isCellDateFormatted(raw.getRow(1).getCell(4))).isTrue();
+            var charts = summary.getDrawingPatriarch().getCharts();
+            assertThat(charts).hasSize(2);
+            assertThat(charts.getFirst().getCTChart().getPlotArea().getLineChartArray(0).sizeOfSerArray()).isEqualTo(3);
+            assertThat(charts.getFirst().getCTChart().getPlotArea().sizeOfDateAxArray()).isEqualTo(1);
+            assertThat(charts.getLast().getCTChart().getPlotArea().sizeOfBarChartArray()).isEqualTo(1);
         }
-        byte[] pdf = mvc.perform(get("/api/reports.pdf").param("group","category"))
+        byte[] pdf = mvc.perform(get("/api/reports.pdf").param("group","category").param("productId","701")
+                .param("from", "2026-10-01").param("to", "2026-10-10"))
             .andExpect(status().isOk()).andExpect(content().contentType("application/pdf"))
             .andReturn().getResponse().getContentAsByteArray();
         try (var document = Loader.loadPDF(pdf)) {
-            assertThat(new PDFTextStripper().getText(document)).contains("Напитки", "10.00 руб.", "0.00 %");
+            assertThat(new PDFTextStripper().getText(document)).contains("Price Analyzer — Анализ цен", "Кофе",
+                "01.10.2026", "10.10.2026", "Динамика цен", "Распределение ценовых наблюдений",
+                "Напитки", "10,00 ₽", "80,00 ₽", "273,33 ₽").doesNotContain("\uFFFD", "????");
+        }
+    }
+
+    @Test
+    void pdfRepeatsTableHeadingsOnLaterPages() throws Exception {
+        for (int store = 0; store < 44; store++) {
+            price("Магазин " + store + " " + "Длинное название ".repeat(5), 100, 5);
+        }
+        byte[] pdf = mvc.perform(get("/api/reports.pdf").param("group", "product").param("productId", "701"))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+        try (var document = Loader.loadPDF(pdf)) {
+            assertThat(document.getNumberOfPages()).isGreaterThan(1);
+            assertThat(new PDFTextStripper().getText(document)).contains("Последние цены · продолжение", "Магазин 43");
         }
     }
 

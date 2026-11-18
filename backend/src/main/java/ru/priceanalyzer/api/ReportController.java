@@ -11,7 +11,8 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import ru.priceanalyzer.service.PriceReports;
-import ru.priceanalyzer.service.ReportFiles;
+import ru.priceanalyzer.service.ExcelPriceReport;
+import ru.priceanalyzer.service.PdfPriceReport;
 
 @RestController
 @RequestMapping("/api")
@@ -31,7 +32,7 @@ public class ReportController {
     public ResponseEntity<byte[]> workbook(@ModelAttribute PriceReports.Filter filter) {
         try {
             return download("price-report.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                ReportFiles.xlsx(reports.calculate(filter)));
+                ExcelPriceReport.write(reports.snapshot(filter)));
         } catch (IOException failure) {
             throw new ApiProblem(HttpStatus.INTERNAL_SERVER_ERROR, "Не удалось сформировать XLSX");
         }
@@ -40,7 +41,7 @@ public class ReportController {
     @GetMapping("/reports.pdf")
     public ResponseEntity<byte[]> pdf(@ModelAttribute PriceReports.Filter filter) {
         try {
-            return download("price-report.pdf", "application/pdf", ReportFiles.pdf(reports.calculate(filter)));
+            return download("price-report.pdf", "application/pdf", PdfPriceReport.write(reports.snapshot(filter)));
         } catch (IOException failure) {
             throw new ApiProblem(HttpStatus.INTERNAL_SERVER_ERROR, "Не удалось сформировать PDF");
         }

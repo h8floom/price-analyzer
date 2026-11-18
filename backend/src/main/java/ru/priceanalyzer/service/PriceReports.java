@@ -23,23 +23,36 @@ public class PriceReports {
         this.catalog = catalog;
     }
 
-    public record Filter(String group, LocalDate from, LocalDate to, String category, String store) {}
+    public record Filter(String group, LocalDate from, LocalDate to, String category, String store, Long productId) {}
     public record Row(String label, int observationSeries, BigDecimal averageChange, BigDecimal averagePercent) {}
+    public record Snapshot(Filter filter, Product selected, Map<Long, Product> products, List<PriceEntry> prices, List<Row> rows) {}
     private record Key(long productId, String store) {}
     private record Series(PriceEntry first, PriceEntry last) {}
 
     @Transactional(readOnly = true)
     public List<Row> calculate(Filter filter) {
+        return snapshot(filter).rows();
+    }
+
+    @Transactional(readOnly = true)
+    public Snapshot snapshot(Filter filter) {
         if (filter.group() == null || !List.of("product", "category", "store").contains(filter.group())) {
             throw new ApiProblem(HttpStatus.BAD_REQUEST, "Неизвестный тип отчёта");
         }
         Map<Long, Product> products = new HashMap<>();
         catalog.products().forEach(product -> products.put(product.id(), product));
+        Product selected = filter.productId() == null ? null : products.get(filter.productId());
+        if (filter.productId() != null && selected == null) {
+            throw new ApiProblem(HttpStatus.NOT_FOUND, "Товар не найден");
+        }
+
         Map<Key, Series> series = new HashMap<>();
-        for (PriceEntry entry : catalog.prices(null, filter.from(), filter.to())) {
+        List<PriceEntry> prices = catalog.prices(filter.productId(), filter.from(), filter.to()).stream().filter(entry -> {
             Product product = products.get(entry.productId());
-            if (product == null || hasValue(filter.category()) && !product.category().equals(filter.category())
-                || hasValue(filter.store()) && !entry.store().equalsIgnoreCase(filter.store())) continue;
+            return product != null && (!hasValue(filter.category()) || product.category().equals(filter.category()))
+                && (!hasValue(filter.store()) || entry.store().equalsIgnoreCase(filter.store()));
+        }).toList();
+        for (PriceEntry entry : prices) {
             var key = new Key(entry.productId(), entry.store().toLowerCase(Locale.ROOT));
             series.compute(key, (unused, previous) -> new Series(previous == null ? entry : previous.first(), entry));
         }
@@ -55,7 +68,8 @@ public class PriceReports {
             };
             grouped.computeIfAbsent(label, unused -> new Totals()).add(sample);
         }
-        return grouped.entrySet().stream().map(entry -> entry.getValue().row(entry.getKey())).toList();
+        var rows = grouped.entrySet().stream().map(entry -> entry.getValue().row(entry.getKey())).toList();
+        return new Snapshot(filter, selected, products, prices, rows);
     }
 
     private boolean hasValue(String value) {

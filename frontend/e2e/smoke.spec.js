@@ -424,8 +424,9 @@ test('пользователь загружает CSV и скачивает ис
 test('пользователь формирует отчёт и выгружает PDF и Excel', async ({ page }) => {
   await signIn(page);
   const category = uniqueName('Категория отчёта');
+  const name = uniqueName('Товар отчёта');
   const product = await post(page.request, '/api/products', {
-    data: { name: uniqueName('Товар отчёта'), category, unit: 'шт.' },
+    data: { name, category, unit: 'шт.' },
   });
   expect(product.status()).toBe(201);
   const productId = (await product.json()).id;
@@ -436,6 +437,7 @@ test('пользователь формирует отчёт и выгружае
   }
   await page.goto('/');
   await page.getByRole('button', { name: 'Отчёты' }).click();
+  await page.getByRole('combobox', { name: 'Товар', exact: true }).selectOption({ label: name });
   await page.getByRole('combobox', { name: 'Категория', exact: true }).selectOption(category);
   await page.getByRole('button', { name: 'Сформировать отчёт' }).click();
   const row = page.getByRole('row').filter({ hasText: category });

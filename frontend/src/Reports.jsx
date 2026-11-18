@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from './lib/api.js';
 
-const initialFilters = { group: 'category', from: '', to: '', category: '', store: '' };
+const initialFilters = { group: 'category', productId: '', from: '', to: '', category: '', store: '' };
 const number = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function Reports({ products, prices }) {
@@ -57,6 +57,10 @@ export default function Reports({ products, prices }) {
           <option value="store">По магазинам</option>
           <option value="product">По товарам</option>
         </select></label>
+        <label>Товар<select name="productId" value={filters.productId} onChange={change}>
+          <option value="">Все товары</option>
+          {products.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
+        </select></label>
         <label>Начало периода<input type="date" name="from" value={filters.from} max={filters.to || undefined} onChange={change} /></label>
         <label>Конец периода<input type="date" name="to" value={filters.to} min={filters.from || undefined} onChange={change} /></label>
         <label><span id="report-category-label">Категория</span><select aria-labelledby="report-category-label" name="category" value={filters.category} onChange={change}>
@@ -73,6 +77,7 @@ export default function Reports({ products, prices }) {
     {error && <p className="alert error" role="alert">{error}</p>}
     {report && <>
       <p className="helper">Изменение между первой и последней ценой товара в магазине. В среднем учитываются серии с двумя датами или больше.</p>
+      {!filters.productId && <p className="helper">Выберите товар, чтобы включить график его цен по магазинам в PDF и Excel.</p>}
       {report.rows.length === 0 ? <p className="empty" role="status">За выбранный период недостаточно записей для расчёта.</p>
         : <div className="table-scroll"><table><thead><tr>
           <th scope="col">Группа</th><th scope="col">Серий</th>
