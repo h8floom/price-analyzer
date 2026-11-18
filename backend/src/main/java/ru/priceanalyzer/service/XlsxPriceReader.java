@@ -17,25 +17,37 @@ final class XlsxPriceReader {
     static List<List<String>> read(InputStream input) {
         try (var workbook = new XSSFWorkbook(input)) {
             if (workbook.getNumberOfSheets() != 1) {
-                throw invalid("В XLSX должен быть один лист с ценами");
+                throw invalid("Для импорта нужен один лист с историей цен. Используйте шаблон или выгрузку истории.");
             }
             var sheet = workbook.getSheetAt(0);
-            if (sheet.getLastRowNum() > 10_000) throw invalid("Допустимо до 10 000 записей в XLSX");
+            if (sheet.getLastRowNum() > XlsxPriceFiles.ROW_LIMIT) throw invalid("Допустимо до 10 000 записей в XLSX");
+            var header = sheet.getRow(0);
+            List<String> headings = new ArrayList<>();
+            if (header != null) {
+                for (int col = 0; col < header.getLastCellNum(); col++) headings.add(value(header.getCell(col), 0, false));
+                while (!headings.isEmpty() && headings.getLast().isEmpty()) headings.removeLast();
+            }
+            boolean history = headings.equals(XlsxPriceFiles.HISTORY_HEADERS);
+            if (!history && !headings.equals(XlsxPriceFiles.IMPORT_HEADERS)) {
+                throw invalid("Используйте заголовки productId, store, price, date или выгрузку истории цен");
+            }
+            int store = history ? 2 : 1;
 
             List<List<String>> rows = new ArrayList<>();
-            for (int index = 0; index <= sheet.getLastRowNum(); index++) {
+            rows.add(XlsxPriceFiles.IMPORT_HEADERS);
+            for (int index = 1; index <= sheet.getLastRowNum(); index++) {
                 var row = sheet.getRow(index);
                 if (row == null) {
                     rows.add(List.of(""));
                     continue;
                 }
                 for (Cell cell : row) {
-                    if (cell.getColumnIndex() >= 4 && !value(cell, index).isBlank()) {
-                        throw invalid("В строке " + (index + 1) + " должно быть четыре столбца");
+                    if (cell.getColumnIndex() >= headings.size() && !value(cell, index, false).isBlank()) {
+                        throw invalid("Лишний столбец в строке " + (index + 1));
                     }
                 }
-                List<String> cells = new ArrayList<>(4);
-                for (int col = 0; col < 4; col++) cells.add(value(row.getCell(col), index));
+                List<String> cells = List.of(value(row.getCell(0), index, false), value(row.getCell(store), index, false),
+                    value(row.getCell(store + 1), index, false), value(row.getCell(store + 2), index, true));
                 rows.add(cells.stream().allMatch(String::isBlank) ? List.of("") : cells);
             }
             return rows;
@@ -46,12 +58,12 @@ final class XlsxPriceReader {
         }
     }
 
-    private static String value(Cell cell, int rowIndex) {
+    private static String value(Cell cell, int rowIndex, boolean date) {
         if (cell == null) return "";
         return switch (cell.getCellType()) {
             case BLANK -> "";
             case STRING -> cell.getStringCellValue().strip();
-            case NUMERIC -> cell.getColumnIndex() == 3 && DateUtil.isCellDateFormatted(cell)
+            case NUMERIC -> date && DateUtil.isCellDateFormatted(cell)
                 ? cell.getLocalDateTimeCellValue().toLocalDate().toString()
                 : BigDecimal.valueOf(cell.getNumericCellValue()).stripTrailingZeros().toPlainString();
             default -> throw invalid("Недопустимый тип ячейки в строке " + (rowIndex + 1));

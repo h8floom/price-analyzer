@@ -384,7 +384,7 @@ test('приёмка аналитики: при смене товара пред
   await expect(page.locator('.metric strong')).toHaveText(['—', '—', '—']);
 });
 
-test('пользователь загружает CSV и скачивает историю', async ({ page }) => {
+test('CSV API сохраняет импорт и оба формата экспорта', async ({ page }) => {
   await signIn(page);
   const name = uniqueName('E2E Импорт');
   const response = await post(page.request, '/api/products', {
@@ -392,33 +392,63 @@ test('пользователь загружает CSV и скачивает ис
   });
   expect(response.status()).toBe(201);
   const { id } = await response.json();
-  await page.goto('/');
-  await expect.poll(async () => {
-    const response = await page.request.get('/api/health');
-    return response.ok();
-  }).toBe(true);
-  await page.getByRole('button', { name: /Импорт \/ экспорт/ }).click();
-  await page.locator('input[type="file"]').setInputFiles({
-    name: 'test-prices.csv', mimeType: 'text/csv',
-    buffer: Buffer.from(`productId,store,price,date\n${id},E2E CSV Магазин,147.25,2026-10-21\n`, 'utf8'),
+  const imported = await page.request.post('/api/import/prices', {
+    headers: { ...bearer(page.request), 'Content-Type': 'text/csv' },
+    data: `productId,store,price,date\n${id},E2E CSV Магазин,147.25,2026-10-21\n`,
   });
-  await expect(page.getByRole('status')).toContainText('Импортировано: 1');
-  await page.locator('.import-card select').selectOption({ value: String(id) });
-  const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Скачать CSV' }).click();
-  const download = await downloadPromise;
-  expect(download.suggestedFilename()).toBe('prices.csv');
-  const fs = await import('node:fs/promises');
-  const csv = await fs.readFile(await download.path(), 'utf8');
+  expect(await imported.json()).toMatchObject({ imported: 1 });
+  const standard = await page.request.get(`/api/export/prices.csv?productId=${id}`, { headers: bearer(page.request) });
+  expect(standard.headers()['content-disposition']).toContain('prices.csv');
+  const csv = await standard.text();
   expect(csv).toContain('E2E CSV Магазин');
   expect(csv).toContain('147.25');
-  const nextDownload = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'CSV для Excel' }).click();
-  const excel = await nextDownload;
-  expect(excel.suggestedFilename()).toBe('prices-excel.csv');
-  const bytes = await fs.readFile(await excel.path());
+  const excel = await page.request.get(`/api/export/prices.csv?format=excel&productId=${id}`, { headers: bearer(page.request) });
+  expect(excel.headers()['content-disposition']).toContain('prices-excel.csv');
+  const bytes = await excel.body();
   expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
   expect(bytes.toString('utf8')).toContain(`productId;productName;store;price;date\r\n${id};"${name}";"E2E CSV Магазин";147,25;2026-10-21\r\n`);
+});
+
+test('ADMIN скачивает шаблон и повторно загружает XLSX, USER выгружает историю', async ({ page, browser }) => {
+  await signIn(page);
+  const name = uniqueName('История XLSX');
+  const created = await post(page.request, '/api/products', { data: { name, category: 'Тесты', unit: 'шт.' } });
+  expect(created.status()).toBe(201);
+  const { id } = await created.json();
+  expect((await post(page.request, '/api/prices', {
+    data: { productId: id, store: 'Магазин «Ёлка»', price: 147.25, date: '2026-10-21' },
+  })).status()).toBe(201);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Импорт / экспорт' }).click();
+  const template = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Скачать шаблон XLSX' }).click();
+  expect((await template).suggestedFilename()).toBe('price-import-template.xlsx');
+  await page.getByLabel('Товар для выгрузки').selectOption(String(id));
+  const exported = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Скачать историю XLSX' }).click();
+  const workbook = await exported;
+  expect(workbook.suggestedFilename()).toBe('price-history.xlsx');
+  const filename = await workbook.path();
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'price-history.xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: await (await import('node:fs/promises')).readFile(filename),
+  });
+  await expect(page.getByRole('status')).toContainText('Импортировано: 0. Дубликатов пропущено: 1.');
+  const other = await browser.newPage();
+  try {
+    await createUser(other);
+    await other.goto('/');
+    await other.getByRole('button', { name: 'Импорт / экспорт' }).click();
+    await expect(other.getByRole('button', { name: 'Скачать историю XLSX' })).toBeVisible();
+    await expect(other.getByRole('button', { name: 'Скачать шаблон XLSX' })).toHaveCount(0);
+    await expect(other.locator('input[type="file"]')).toHaveCount(0);
+    const userExport = other.waitForEvent('download');
+    await other.getByRole('button', { name: 'Скачать историю XLSX' }).click();
+    expect((await userExport).suggestedFilename()).toBe('price-history.xlsx');
+  } finally {
+    await other.close();
+  }
 });
 
 test('пользователь формирует отчёт и выгружает PDF и Excel', async ({ page }) => {
@@ -442,7 +472,7 @@ test('пользователь формирует отчёт и выгружае
   await page.getByRole('button', { name: 'Сформировать отчёт' }).click();
   const row = page.getByRole('row').filter({ hasText: category });
   await expect(row).toContainText('20,00');
-  for (const [label, filename] of [['Скачать PDF', 'price-report.pdf'], ['Скачать Excel', 'price-report.xlsx']]) {
+  for (const [label, filename] of [['Скачать отчёт PDF', 'price-report.pdf'], ['Скачать отчёт XLSX', 'price-report.xlsx']]) {
     const pending = page.waitForEvent('download');
     await page.getByRole('button', { name: label }).click();
     expect((await pending).suggestedFilename()).toBe(filename);

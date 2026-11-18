@@ -87,8 +87,8 @@ export default function Reports({ products, prices }) {
           <td>{number.format(row.averageChange)}</td><td>{number.format(row.averagePercent)}</td>
         </tr>)}</tbody></table></div>}
       <div className="report-downloads">
-        <button type="button" className="btn secondary download" disabled={downloading} onClick={() => download('pdf')}>Скачать PDF</button>
-        <button type="button" className="btn secondary download" disabled={downloading} onClick={() => download('xlsx')}>Скачать Excel</button>
+        <button type="button" className="btn secondary download" disabled={downloading} onClick={() => download('pdf')}>Скачать отчёт PDF</button>
+        <button type="button" className="btn secondary download" disabled={downloading} onClick={() => download('xlsx')}>Скачать отчёт XLSX</button>
       </div>
     </>}
   </section>;

@@ -197,6 +197,7 @@ function Workspace({ session, onLogout }) {
   const [to, setTo] = useState('');
   const [tick, setTick] = useState(0);
   const [busyImport, setBusyImport] = useState(false);
+  const [exportFilter, setExportFilter] = useState({ productId: '', from: '', to: '' });
   const [favorites, setFavorites] = useState(null);
   const [busyFavorites, setBusyFavorites] = useState(() => new Set());
   const [favoriteError, setFavoriteError] = useState('');
@@ -335,9 +336,8 @@ function Workspace({ session, onLogout }) {
     if (!file) return;
     setBusyImport(true); setError('');
     try {
-      const result = file.name.toLowerCase().endsWith('.xlsx')
-        ? await api.importXlsx(file)
-        : await api.importCsv(await file.text());
+      if (!file.name.toLowerCase().endsWith('.xlsx')) throw new Error('Выберите файл Excel (.xlsx).');
+      const result = await api.importXlsx(file);
       changed(`Импортировано: ${result.imported}. Дубликатов пропущено: ${result.duplicatesSkipped}.`);
     } catch (e) { setError(e.message); }
     finally { setBusyImport(false); event.target.value = ''; }
@@ -374,7 +374,7 @@ function Workspace({ session, onLogout }) {
               : page === 'favorites' ? 'Товары, за ценами которых вы следите.'
               : page === 'compare' ? 'Анализ последних цен в магазинах для выбранного товара.'
               : page === 'reports' ? 'Сводные изменения цен по товарам, категориям и магазинам.'
-              : page === 'import' && (admin ? 'Загрузка истории из CSV и XLSX, выгрузка в CSV.' : 'Выгрузка истории цен в CSV.')}</p></div>
+              : page === 'import' && (admin ? 'Загрузка и выгрузка истории цен в Excel (.xlsx).' : 'Выгрузка истории цен в Excel (.xlsx).')}</p></div>
           {admin && ['overview', 'catalog', 'compare'].includes(page) && <button className="btn primary" disabled={!products.length} onClick={() => setModal('price')}>＋ Добавить цену</button>}
         </div>
 
@@ -469,13 +469,32 @@ function Workspace({ session, onLogout }) {
         {page === 'settings' && admin && <AdminSettings />}
 
         {page === 'import' && <div className="import-grid">
-          {admin && <section className="panel import-card"><div className="import-icon">⇪</div><h2>Импорт цен</h2><p>Загрузите историю в CSV или XLSX. Укажите заголовки в первой строке.</p><code>productId,store,price,date</code><label className="file-button"> {busyImport ? 'Загрузка...' : 'Выбрать CSV или XLSX'}<input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={busyImport} onChange={importFile} /></label><small>Дата: YYYY-MM-DD. Повторные записи пропускаются.</small></section>}
-          <section className="panel import-card"><div className="import-icon">⇩</div><h2>Экспорт CSV</h2><p>Сохрани историю цен на компьютер. Выбери все товары или только один.</p><select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}><option value="">Все товары</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+          {admin && <section className="panel import-card">
+            <div className="import-icon">⇪</div><h2>Импорт истории цен</h2>
+            <p>Загрузите заполненный шаблон или ранее выгруженную историю цен.</p>
+            <code>productId | store | price | date</code>
+            <button type="button" className="btn secondary"
+              onClick={() => api.downloadImportTemplate().catch((failure) => setError(failure.message))}>Скачать шаблон XLSX</button>
+            <label className="file-button">{busyImport ? 'Загрузка…' : 'Выбрать XLSX'}
+              <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                disabled={busyImport} onChange={importFile} />
+            </label>
+            <small>Дата Excel или YYYY-MM-DD. Повторные записи пропускаются.</small>
+          </section>}
+          <section className="panel import-card">
+            <div className="import-icon">⇩</div><h2>Экспорт истории цен</h2>
+            <p>Наблюдения по ценам с названиями товаров, магазинами и датами.</p>
+            <select aria-label="Товар для выгрузки" value={exportFilter.productId}
+              onChange={(event) => setExportFilter((previous) => ({ ...previous, productId: event.target.value }))}>
+              <option value="">Все товары</option>
+              {products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+            </select>
+            <DateRange from={exportFilter.from} to={exportFilter.to}
+              setFrom={(from) => setExportFilter((previous) => ({ ...previous, from }))}
+              setTo={(to) => setExportFilter((previous) => ({ ...previous, to }))} />
             <button type="button" className="btn primary download"
-              onClick={() => api.downloadCsv(selectedId, true).catch((failure) => setError(failure.message))}>CSV для Excel</button>
-            <button type="button" className="btn secondary download"
-              onClick={() => api.downloadCsv(selectedId).catch((failure) => setError(failure.message))}>Скачать CSV</button>
-            <small>Для Excel выберите разделитель «точка с запятой». Обычный CSV предназначен для обмена и импорта.</small></section>
+              onClick={() => api.downloadHistory(exportFilter).catch((failure) => setError(failure.message))}>Скачать историю XLSX</button>
+          </section>
         </div>}
       </div>
     </main>

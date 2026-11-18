@@ -1,6 +1,7 @@
 package ru.priceanalyzer.service;
 
 import java.io.InputStream;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.PreparedStatement;
@@ -16,6 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import ru.priceanalyzer.api.ApiProblem;
 import ru.priceanalyzer.domain.PriceEntry;
@@ -223,6 +225,14 @@ public class CatalogService {
         return out.toString();
     }
 
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public byte[] exportXlsx(Long productId, LocalDate from, LocalDate to) throws IOException {
+        Map<Long, String> names = productId == null
+            ? products().stream().collect(Collectors.toMap(Product::id, Product::name))
+            : Map.of(productId, product(productId).name());
+        return XlsxPriceFiles.history(prices(productId, from, to), names);
+    }
+
     private static String csvEscape(String value) {
         return "\"" + value.replace("\"","\"\"") + "\"";
     }
@@ -247,7 +257,7 @@ public class CatalogService {
         return importRows(XlsxPriceReader.read(input));
     }
 
-    private record ImportRow(long productId, String store, BigDecimal price, LocalDate date) {}
+    private record ImportRow(int line, long productId, String store, BigDecimal price, LocalDate date) {}
 
     private Map<String,Integer> importRows(List<List<String>> rows) {
         if (rows.isEmpty() || !rows.get(0).equals(List.of("productId","store","price","date")))
@@ -263,9 +273,11 @@ public class CatalogService {
                 String store = required(row.get(1), "Магазин", 160);
                 BigDecimal amount = new BigDecimal(row.get(2));
                 validatePrice(amount, date);
-                entries.add(new ImportRow(productId, store, amount, date));
+                entries.add(new ImportRow(i + 1, productId, store, amount, date));
             } catch (NumberFormatException | java.time.format.DateTimeParseException ex) {
                 throw new ApiProblem(HttpStatus.BAD_REQUEST,"Некорректные значения в строке "+(i+1));
+            } catch (ApiProblem problem) {
+                throw new ApiProblem(problem.status(), "Строка " + (i + 1) + ": " + problem.getMessage());
             }
         }
         // Lock products in the same order across concurrent imports. Equal-date rows keep file order.
@@ -273,7 +285,13 @@ public class CatalogService {
         int imported = 0, skipped = 0;
         Product product = null;
         for (ImportRow entry : entries) {
-            if (product == null || product.id() != entry.productId()) product = lockProduct(entry.productId());
+            if (product == null || product.id() != entry.productId()) {
+                try {
+                    product = lockProduct(entry.productId());
+                } catch (ApiProblem problem) {
+                    throw new ApiProblem(problem.status(), "Строка " + entry.line() + ": товар с ID " + entry.productId() + " не найден");
+                }
+            }
             if (priceExists(product.id(), entry.store(), entry.date(), entry.price())) {
                 skipped++;
             } else {
