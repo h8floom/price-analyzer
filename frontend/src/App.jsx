@@ -4,7 +4,8 @@ import AccountForm from './AccountForm.jsx';
 import Reports from './Reports.jsx';
 import AdminSettings from './AdminSettings.jsx';
 import Favorites, { FavoriteButton } from './Favorites.jsx';
-import { calculateStats, dateLabel, formatPrice, getSeries } from './lib/priceUtils.js';
+import Notifications, { NotificationBell, useUnreadNotifications } from './Notifications.jsx';
+import { calculateStats, dateLabel, formatPrice, getLatestByStore, getSeries } from './lib/priceUtils.js';
 
 const NAV = [
   ['overview', '▦', 'Обзор'],
@@ -14,6 +15,7 @@ const NAV = [
   ['import', '⇪', 'Импорт / экспорт'],
   ['reports', '▥', 'Отчёты'],
   ['settings', '⚙', 'Управление'],
+  ['notifications', '', 'Уведомления'],
 ];
 
 function LineChart({ history }) {
@@ -135,8 +137,32 @@ function PriceForm({ products, selectedId, onCancel, onSave }) {
       <label>Дата<input required type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></label>
     </div>
     {error && <div className="field-error">{error}</div>}
-    <p className="helper">Для одного товара, магазина и дня допускается одна запись.</p>
+    <p className="helper">Если цена за эту дату уже есть, измените последнее наблюдение в сравнении цен.</p>
     <div className="form-actions"><button type="button" className="btn secondary" onClick={onCancel}>Отмена</button><button disabled={busy} className="btn primary" type="submit">{busy ? 'Сохранение...' : 'Сохранить цену'}</button></div>
+  </form>;
+}
+
+function PriceUpdateForm({ record, onSave, onCancel }) {
+  const [value, setValue] = useState(record.price);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function save(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try { await onSave(Number(value)); }
+    catch (failure) { setError(failure.message); }
+    finally { setBusy(false); }
+  }
+
+  return <form className="form-grid" onSubmit={save}>
+    <p className="helper">{record.store} · {record.date}. Предыдущая цена останется в истории.</p>
+    <label>Новая цена, ₽<input name="price" required type="number" min="0.01" max="9999999999.99"
+      step="0.01" value={value} onChange={(event) => setValue(event.target.value)} /></label>
+    {error && <div role="alert" className="field-error">{error}</div>}
+    <div className="form-actions"><button type="button" className="btn secondary" onClick={onCancel}>Отмена</button>
+      <button className="btn primary" disabled={busy}>{busy ? 'Сохранение…' : 'Сохранить цену'}</button></div>
   </form>;
 }
 
@@ -164,6 +190,7 @@ function Workspace({ session, onLogout }) {
   const [error, setError] = useState('');
   const [modal, setModal] = useState('');
   const [editing, setEditing] = useState(null);
+  const [editingPrice, setEditingPrice] = useState(null);
   const [search, setSearch] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -173,6 +200,22 @@ function Workspace({ session, onLogout }) {
   const [busyFavorites, setBusyFavorites] = useState(() => new Set());
   const [favoriteError, setFavoriteError] = useState('');
   const [favoriteAttempt, setFavoriteAttempt] = useState(0);
+  const inbox = useUnreadNotifications();
+
+  useEffect(() => {
+    function productLink() {
+      const id = new URLSearchParams(location.hash.slice(1)).get('product');
+      if (id && /^[1-9]\d*$/.test(id)) {
+        setSelectedId(id);
+        setFrom('');
+        setTo('');
+        setPage('compare');
+      }
+    }
+    window.addEventListener('hashchange', productLink);
+    productLink();
+    return () => window.removeEventListener('hashchange', productLink);
+  }, []);
 
   useEffect(() => {
     const load = new AbortController();
@@ -211,10 +254,18 @@ function Workspace({ session, onLogout }) {
   const selectedProduct = products.find((p) => String(p.id) === String(selectedId));
   const averageAll = calculateStats(allPrices).average;
   const lastDate = allPrices.length ? [...allPrices].sort((a,b) => b.date.localeCompare(a.date))[0].date : null;
+  const editablePrices = admin && page === 'compare'
+    ? new Set(getLatestByStore(allPrices.filter((entry) => String(entry.productId) === selectedId)).map(({ id }) => id))
+    : null;
 
+  function navigate(target) {
+    if (location.hash.startsWith('#product=')) history.replaceState(null, '', location.pathname + location.search);
+    setPage(target);
+    setMessage('');
+  }
   function compare(productId) {
     setSelectedId(String(productId));
-    setPage('compare');
+    navigate('compare');
   }
   async function toggleFavorite(id, saved) {
     setBusyFavorites((previous) => new Set(previous).add(id));
@@ -257,6 +308,12 @@ function Workspace({ session, onLogout }) {
     setSelectedId(String(form.productId));
     setModal(''); changed('Цена сохранена, показатели обновлены.');
   }
+  async function savePriceChange(amount) {
+    await api.updatePrice(editingPrice.id, amount);
+    setModal('');
+    changed('Цена сохранена, предыдущая запись осталась в истории.');
+    inbox.refresh();
+  }
   async function deletePrice(record) {
     if (!window.confirm('Удалить эту запись о цене?')) return;
     try { await api.deletePrice(record.id); changed('Запись удалена.'); }
@@ -279,8 +336,8 @@ function Workspace({ session, onLogout }) {
     <aside className="sidebar">
       <div className="logo"><span>₽</span><div><b>Price Analyzer</b></div></div>
       <div className="nav-caption">РАБОЧАЯ ОБЛАСТЬ</div>
-      <nav aria-label="Навигация">{NAV.filter(([id]) => admin || id !== 'settings').map(([id, icon, label]) =>
-        <button key={id} onClick={() => { setPage(id); setMessage(''); }} aria-current={page === id ? 'page' : undefined} className={`nav-link ${page === id ? 'active' : ''}`}>
+      <nav aria-label="Навигация">{NAV.filter(([id]) => id !== 'notifications' && (admin || id !== 'settings')).map(([id, icon, label]) =>
+        <button key={id} onClick={() => navigate(id)} aria-current={page === id ? 'page' : undefined} className={`nav-link ${page === id ? 'active' : ''}`}>
           <span className="nav-icon" aria-hidden="true">{icon}</span>{label}
         </button>)}</nav>
     </aside>
@@ -288,7 +345,12 @@ function Workspace({ session, onLogout }) {
     <main className="workspace">
       <header className="topbar">
         <div>Рабочая область <span>/</span> <b>{NAV.find(([id]) => id === page)?.[2]}</b></div>
-        <div className="account-bar"><span>{session.email}</span><button className="btn secondary" onClick={async () => {
+        <div className="account-bar">
+          <NotificationBell count={inbox.count} active={page === 'notifications'} onOpen={() => {
+            navigate('notifications');
+            inbox.refresh();
+          }} />
+          <span>{session.email}</span><button className="btn secondary" onClick={async () => {
           try { await api.logout(); onLogout(); } catch (failure) { setError(failure.message); }
         }}>Выйти</button></div>
       </header>
@@ -354,7 +416,10 @@ function Workspace({ session, onLogout }) {
         </section>}
 
         {page === 'favorites' && <Favorites products={products} favorites={favorites} busy={busyFavorites}
-          onToggle={toggleFavorite} onCompare={compare} onCatalog={() => setPage('catalog')} loadError={favoriteError} retry={retryFavorites} />}
+          onToggle={toggleFavorite} onCompare={compare} onCatalog={() => navigate('catalog')} loadError={favoriteError} retry={retryFavorites} />}
+
+        {page === 'notifications' && <Notifications revision={inbox.revision} onRead={inbox.refresh}
+          onFavorites={() => navigate('favorites')} />}
 
         {page === 'compare' && <>
           <section className="panel selector"><div><h2>Выбранный товар</h2><p>Для каждого магазина берётся последняя цена за период</p></div><select aria-label="Товар для сравнения" value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></section>
@@ -365,8 +430,12 @@ function Workspace({ session, onLogout }) {
             <Metric icon="↑" title="Максимальная" value={formatPrice(stats.max)} caption="Дорогое предложение" />
           </div>
           <section className="panel"><div className="panel-head"><div><h2>Сравнение магазинов</h2><p>Цены упорядочены по возрастанию</p></div></div>
-            <div className="table-scroll"><table><thead><tr><th>МАГАЗИН</th><th>ЦЕНА</th><th>ДАТА</th><th>РАЗНИЦА</th></tr></thead><tbody>
-              {latest.map((p, i) => <tr key={p.id}><td><b>{p.store}</b>{i === 0 && <span className="best inline">Минимум</span>}</td><td className={i === 0 ? 'green-text' : ''}><b>{formatPrice(p.price)}</b></td><td>{p.date}</td><td>{i === 0 ? '—' : `+${formatPrice(Number(p.price) - Number(stats.min))}`}</td></tr>)}
+            <div className="table-scroll"><table><thead><tr><th>МАГАЗИН</th><th>ЦЕНА</th><th>ДАТА</th><th>РАЗНИЦА</th>{admin && <th>ДЕЙСТВИЯ</th>}</tr></thead><tbody>
+              {latest.map((p, i) => <tr key={p.id}><td><b>{p.store}</b>{i === 0 && <span className="best inline">Минимум</span>}</td><td className={i === 0 ? 'green-text' : ''}><b>{formatPrice(p.price)}</b></td><td>{p.date}</td><td>{i === 0 ? '—' : `+${formatPrice(Number(p.price) - Number(stats.min))}`}</td>
+                {admin && <td className="actions">{editablePrices.has(p.id) && <button onClick={() => {
+                  setEditingPrice(p);
+                  setModal('editPrice');
+                }}>Изменить цену</button>}</td>}</tr>)}
             </tbody></table>{!latest.length && <div className="empty">Для выбранного товара нет цен.</div>}</div>
           </section>
           <section className="panel"><div className="panel-head"><div><h2>История записей</h2></div></div>
@@ -387,9 +456,10 @@ function Workspace({ session, onLogout }) {
     </main>
 
     {modal && <Modal label={modal === 'product' ? 'Форма товара' : 'Форма цены'} onClose={() => setModal('')}>
-      <div className="dialog-head"><h2>{modal === 'product' ? editing ? 'Изменить товар' : 'Новый товар' : 'Добавить цену'}</h2><button className="close" onClick={() => setModal('')} aria-label="Закрыть">×</button></div>
+      <div className="dialog-head"><h2>{modal === 'product' ? editing ? 'Изменить товар' : 'Новый товар' : modal === 'editPrice' ? 'Изменить цену' : 'Добавить цену'}</h2><button className="close" onClick={() => setModal('')} aria-label="Закрыть">×</button></div>
       {modal === 'product'
         ? <ProductForm initial={editing} onSave={saveProduct} onCancel={() => setModal('')} />
+        : modal === 'editPrice' ? <PriceUpdateForm record={editingPrice} onSave={savePriceChange} onCancel={() => setModal('')} />
         : <PriceForm products={products} selectedId={selectedId} onSave={savePrice} onCancel={() => setModal('')} />}
     </Modal>}
   </div>;

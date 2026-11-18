@@ -63,4 +63,27 @@ describe('API transport', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500, json: async () => { throw Error('not JSON'); } })));
     await expect(request('/broken')).rejects.toThrow('HTTP 500');
   });
+
+  it('uses the authenticated session for personalized requests and keeps CSRF on mutations', async () => {
+    const fetchMock = vi.fn(async (url) => url.endsWith('/csrf')
+      ? response({ headerName: 'X-CSRF-TOKEN', token: 'test-token' }) : response(null, 204));
+    vi.stubGlobal('fetch', fetchMock);
+    await api.favorites();
+    await api.setFavorite(7, true);
+    await api.setFavorite(7, false);
+    await api.notifications(12);
+    await api.unreadNotifications();
+    await api.readNotification(15);
+    await api.setNotificationMode('DECREASE_ONLY');
+
+    const requests = fetchMock.mock.calls.filter(([path]) => !path.endsWith('/csrf'));
+    expect(requests.map(([path, { method }]) => [path, method])).toEqual([
+      ['/api/favorites', undefined], ['/api/favorites/7', 'PUT'], ['/api/favorites/7', 'DELETE'],
+      ['/api/notifications?before=12', undefined], ['/api/notifications/unread', undefined],
+      ['/api/notifications/15/read', 'PUT'], ['/api/notifications/settings', 'PUT'],
+    ]);
+    const writes = requests.filter(([, { method }]) => method);
+    expect(writes.every(([, { headers }]) => headers['X-CSRF-TOKEN'] === 'test-token')).toBe(true);
+    expect(writes.at(-1)[1].body).toBe('{"mode":"DECREASE_ONLY"}');
+  });
 });

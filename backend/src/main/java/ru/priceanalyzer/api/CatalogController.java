@@ -26,6 +26,7 @@ public class CatalogController {
 
     public record ProductInput(String name, String category, String unit, String description) {}
     public record PriceInput(Long productId, String store, BigDecimal price, LocalDate date) {}
+    public record PriceUpdate(BigDecimal price) {}
 
     @GetMapping("/health")
     public Map<String,String> health(){return Map.of("status","ok","service","price-analyzer");}
@@ -55,6 +56,10 @@ public class CatalogController {
     public PriceEntry addPrice(@RequestBody PriceInput input){
         if(input.productId()==null) throw new ApiProblem(HttpStatus.BAD_REQUEST,"Не указан товар");
         return service.addPrice(input.productId(),input.store(),input.price(),input.date());
+    }
+    @PutMapping("/prices/{id}")
+    public PriceEntry updatePrice(@PathVariable long id, @RequestBody PriceUpdate input) {
+        return service.updatePrice(id, input.price());
     }
     @DeleteMapping("/prices/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)

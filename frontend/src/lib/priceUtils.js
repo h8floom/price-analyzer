@@ -10,9 +10,10 @@ export function formatPrice(price) {
 export function getLatestByStore(records) {
   const latest = new Map();
   for (const record of records) {
-    const old = latest.get(record.store);
+    const store = record.store.toLowerCase();
+    const old = latest.get(store);
     if (!old || record.date > old.date || (record.date === old.date && Number(record.id) > Number(old.id))) {
-      latest.set(record.store, record);
+      latest.set(store, record);
     }
   }
   return [...latest.values()].sort((a, b) => Number(a.price) - Number(b.price));

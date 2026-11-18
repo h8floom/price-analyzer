@@ -1,10 +1,24 @@
 import { test, expect } from '@playwright/test';
+import { join } from 'node:path';
 
 function uniqueName(prefix) {
   return `${prefix} ${Date.now()}-${Math.round(Math.random() * 1_000_000)}`;
 }
 
 const password = 'playwright-price-analyzer';
+
+async function capture(page, name) {
+  if (process.env.LAB8_SCREENSHOT_DIR) {
+    await page.screenshot({ path: join(process.env.LAB8_SCREENSHOT_DIR, name + '.png'), fullPage: true });
+  }
+}
+
+async function signInForm(page, email) {
+  await page.getByLabel('Электронная почта').fill(email);
+  await page.getByLabel('Пароль').fill(password);
+  await page.getByRole('button', { name: 'Войти', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Обзор цен' })).toBeVisible();
+}
 
 async function post(request, path, options) {
   const csrf = await request.get('/api/auth/csrf');
@@ -75,6 +89,85 @@ test('избранное переживает повторный вход и с�
   await page.getByRole('navigation').getByRole('button', { name: 'Избранное', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Избранное пока пусто' })).toBeVisible();
   await expect(page.getByRole('heading', { name, exact: true })).toHaveCount(0);
+});
+
+test('избранный товар получает уведомление о цене, которую изменил администратор', async ({ page, browser }, testInfo) => {
+  const product = testInfo.retry ? uniqueName('Чай ассам, 100 г') : 'Чай ассам, 100 г';
+  const email = `watch-${Date.now()}@example.test`;
+  const admin = await browser.newPage();
+  // Keep local evidence independent of the availability of the external font CDN.
+  for (const tab of [page, admin]) {
+    await tab.route('https://fonts.googleapis.com/**', (route) => route.abort());
+  }
+  try {
+    await admin.goto('/');
+    await signInForm(admin, 'playwright-admin@example.test');
+    const created = await post(admin.request, '/api/products', {
+      data: { name: product, category: 'Напитки', unit: 'уп.', description: 'Листовой чёрный чай' },
+    });
+    expect(created.status()).toBe(201);
+    const { id: productId } = await created.json();
+    const price = await post(admin.request, '/api/prices', {
+      data: { productId, store: 'Чайный магазин', price: 320, date: '2026-11-17' },
+    });
+    expect(price.status()).toBe(201);
+    await admin.reload();
+
+    await page.clock.install();
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Создать аккаунт' }).click();
+    await page.getByLabel('Электронная почта').fill(email);
+    await page.getByLabel('Пароль').fill(password);
+    await page.getByRole('button', { name: 'Зарегистрироваться' }).click();
+    await page.getByRole('button', { name: 'Выйти' }).click();
+    const startingPoll = page.waitForResponse((response) => response.url().endsWith('/api/notifications/unread'));
+    await signInForm(page, email);
+    expect(await (await startingPoll).json()).toEqual({ count: 0 });
+    expect(await (await page.request.get('/api/auth/me')).json()).toMatchObject({ role: 'USER' });
+    await expect(page.getByRole('button', { name: /Добавить цену|Управление/ })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Каталог товаров' }).click();
+    await page.getByRole('button', { name: `Избранное: ${product}` }).click();
+    await page.getByRole('button', { name: 'Избранное', exact: true }).click();
+    await expect(page.getByRole('heading', { name: product })).toBeVisible();
+    await capture(page, '01-user-favorites');
+
+    expect(await (await admin.request.get('/api/auth/me')).json()).toMatchObject({ role: 'ADMIN' });
+    await admin.getByRole('button', { name: 'Управление' }).click();
+    await expect(admin.getByLabel('Дней хранения')).toHaveValue('0');
+    await capture(admin, '02-admin-settings');
+    await admin.getByRole('button', { name: 'Сравнение цен' }).click();
+    await admin.getByLabel('Товар для сравнения').selectOption({ label: product });
+    await admin.getByRole('button', { name: 'Изменить цену' }).click();
+    const form = admin.getByRole('dialog');
+    await form.getByLabel('Новая цена, ₽').fill('279.90');
+    await form.getByRole('button', { name: 'Сохранить цену' }).click();
+    await expect(admin.getByRole('status').filter({ hasText: 'предыдущая запись осталась' })).toBeVisible();
+
+    const poll = page.waitForResponse((response) => response.url().endsWith('/api/notifications/unread'));
+    await page.clock.fastForward(45_000);
+    expect(await (await poll).json()).toEqual({ count: 1 });
+    await page.getByRole('button', { name: 'Уведомления, непрочитанных: 1' }).click();
+    const item = page.locator('.inbox-item');
+    await expect(item).toContainText('Чайный магазин');
+    await expect(item).toContainText(/320,00\s*₽.*279,90\s*₽/s);
+    await expect(item.getByText('Цена снизилась')).toBeVisible();
+    await capture(page, '03-user-unread');
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    await capture(page, '04-user-mobile');
+    await item.getByRole('button', { name: 'Отметить прочитанным' }).click();
+    await expect(page.getByRole('button', { name: 'Уведомления', exact: true })).toBeVisible();
+    await expect(item.getByText('Непрочитано')).toHaveCount(0);
+    await item.getByRole('link', { name: product }).click();
+    await expect(page.getByLabel('Товар для сравнения')).toHaveValue(String(productId));
+    await expect(page.getByRole('button', { name: 'Изменить цену' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Уведомления', exact: true }).click();
+    await page.getByLabel('Получать уведомления').selectOption('DECREASE_ONLY');
+    await expect(page.getByLabel('Получать уведомления')).toHaveValue('DECREASE_ONLY');
+    await capture(page, '05-user-read-settings');
+  } finally {
+    await admin.close();
+  }
 });
 
 test('пользователь добавляет, ищет, редактирует и удаляет товар', async ({ page }) => {

@@ -6,6 +6,7 @@ import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -23,6 +24,7 @@ import ru.priceanalyzer.domain.Product;
 @Service
 public class CatalogService {
     private final JdbcTemplate jdbc;
+    private final PriceNotifications notifications;
 
     private static final RowMapper<Product> PRODUCT_ROW = (rs, row) ->
         new Product(rs.getLong("id"), rs.getString("name"), rs.getString("category"), rs.getString("unit"), rs.getString("description"));
@@ -30,7 +32,10 @@ public class CatalogService {
         new PriceEntry(rs.getLong("id"), rs.getLong("product_id"), rs.getString("store"),
                 rs.getBigDecimal("price"), rs.getDate("observed_on").toLocalDate());
 
-    public CatalogService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public CatalogService(JdbcTemplate jdbc, PriceNotifications notifications) {
+        this.jdbc = jdbc;
+        this.notifications = notifications;
+    }
 
     private String required(String value, String title, int maxLength) {
         if (value == null || value.isBlank() || value.trim().length() > maxLength) {
@@ -113,34 +118,79 @@ public class CatalogService {
 
     @Transactional
     public PriceEntry addPrice(long productId, String store, BigDecimal price, LocalDate date) {
-        product(productId);
         store = required(store, "Магазин", 160);
+        validatePrice(price, date);
+        Product product = lockProduct(productId);
+        if (priceExists(productId, store, date, null)) {
+            throw new ApiProblem(HttpStatus.CONFLICT, "Цена для товара, магазина и даты уже существует");
+        }
+        return recordPrice(product, store, price, date, latestPrice(productId, store));
+    }
+
+    @Transactional
+    public PriceEntry updatePrice(long id, BigDecimal next) {
+        PriceEntry reference = price(id);
+        validatePrice(next, reference.date());
+        Product product = lockProduct(reference.productId());
+        PriceEntry latest = latestPrice(product.id(), reference.store());
+        if (latest != null && latest.date().equals(reference.date()) && latest.price().compareTo(next) == 0) {
+            return latest;
+        }
+        if (latest == null || latest.id() != id) {
+            throw new ApiProblem(HttpStatus.CONFLICT, "Цена уже изменилась. Обновите список перед редактированием");
+        }
+        return recordPrice(product, latest.store(), next, latest.date(), latest);
+    }
+
+    private void validatePrice(BigDecimal price, LocalDate date) {
         if (price == null || price.signum() <= 0 || price.scale() > 2 || price.precision() - price.scale() > 10) {
             throw new ApiProblem(HttpStatus.BAD_REQUEST, "Цена должна быть положительным числом с максимум 2 знаками после запятой");
         }
         if (date == null) throw new ApiProblem(HttpStatus.BAD_REQUEST, "Нужно указать дату");
-        if (jdbc.queryForObject(
-                "SELECT COUNT(*) FROM price_records WHERE product_id=? AND LOWER(store)=LOWER(?) AND observed_on=?",
-                Integer.class, productId, store, Date.valueOf(date)) > 0) {
-            throw new ApiProblem(HttpStatus.CONFLICT, "Цена для товара, магазина и даты уже существует");
-        }
+    }
+
+    private Product lockProduct(long id) {
+        return jdbc.query("SELECT id,name,category,unit,description FROM products WHERE id=? FOR UPDATE", PRODUCT_ROW, id)
+            .stream().findFirst().orElseThrow(() -> new ApiProblem(HttpStatus.NOT_FOUND, "Товар не найден"));
+    }
+
+    private boolean priceExists(long productId, String store, LocalDate date, BigDecimal price) {
+        String sql = "SELECT COUNT(*) FROM price_records WHERE product_id=? AND LOWER(store)=LOWER(?) AND observed_on=?";
+        return (price == null
+            ? jdbc.queryForObject(sql, Integer.class, productId, store, date)
+            : jdbc.queryForObject(sql + " AND price=?", Integer.class, productId, store, date, price)) > 0;
+    }
+
+    private PriceEntry latestPrice(long productId, String store) {
+        return jdbc.query("""
+            SELECT id,product_id,store,price,observed_on FROM price_records
+            WHERE product_id=? AND LOWER(store)=LOWER(?) ORDER BY observed_on DESC,id DESC LIMIT 1
+            """, PRICE_ROW, productId, store).stream().findFirst().orElse(null);
+    }
+
+    private PriceEntry price(long id) {
+        return jdbc.query("SELECT id,product_id,store,price,observed_on FROM price_records WHERE id=?", PRICE_ROW, id)
+            .stream().findFirst().orElseThrow(() -> new ApiProblem(HttpStatus.NOT_FOUND, "Запись о цене не найдена"));
+    }
+
+    private PriceEntry recordPrice(Product product, String store, BigDecimal amount, LocalDate date, PriceEntry previous) {
         GeneratedKeyHolder key=new GeneratedKeyHolder();
-        final String finalStore=store;
         jdbc.update(con -> {
             PreparedStatement ps=con.prepareStatement(
                 "INSERT INTO price_records(product_id,store,price,observed_on) VALUES(?,?,?,?)",
                 new String[]{"id"});
-            ps.setLong(1,productId); ps.setString(2,finalStore);
-            ps.setBigDecimal(3,price); ps.setDate(4,Date.valueOf(date));
+            ps.setLong(1,product.id()); ps.setString(2,store);
+            ps.setBigDecimal(3,amount); ps.setDate(4,Date.valueOf(date));
             return ps;
         }, key);
-        long id=Objects.requireNonNull(key.getKey()).longValue();
-        return jdbc.query("SELECT id,product_id,store,price,observed_on FROM price_records WHERE id=?",
-            PRICE_ROW,id).get(0);
+        PriceEntry current = price(Objects.requireNonNull(key.getKey()).longValue());
+        notifications.recordChange(product, previous, current);
+        return current;
     }
 
     @Transactional
     public void deletePrice(long id) {
+        lockProduct(price(id).productId());
         if(jdbc.update("DELETE FROM price_records WHERE id=?", id)==0)
             throw new ApiProblem(HttpStatus.NOT_FOUND, "Запись о цене не найдена");
     }
@@ -182,29 +232,38 @@ public class CatalogService {
         return importRows(XlsxPriceReader.read(input));
     }
 
+    private record ImportRow(long productId, String store, BigDecimal price, LocalDate date) {}
+
     private Map<String,Integer> importRows(List<List<String>> rows) {
         if (rows.isEmpty() || !rows.get(0).equals(List.of("productId","store","price","date")))
             throw new ApiProblem(HttpStatus.BAD_REQUEST, "Заголовок файла должен быть productId,store,price,date");
-        int imported=0, skipped=0;
+        var entries = new ArrayList<ImportRow>();
         for (int i=1;i<rows.size();i++) {
             List<String> row=rows.get(i);
             if (row.size()==1 && row.get(0).isBlank()) continue;
             if (row.size()!=4) throw new ApiProblem(HttpStatus.BAD_REQUEST, "Неверное число полей в строке "+(i+1));
             try {
                 long productId = Long.parseLong(row.get(0));
-                LocalDate day = LocalDate.parse(row.get(3));
-                String store = row.get(1).trim();
-                int duplicate = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM price_records WHERE product_id=? AND LOWER(store)=LOWER(?) AND observed_on=?",
-                    Integer.class, productId, store, Date.valueOf(day));
-                if (duplicate > 0) {
-                    skipped++;
-                } else {
-                    addPrice(productId, store, new BigDecimal(row.get(2)), day);
-                    imported++;
-                }
+                LocalDate date = LocalDate.parse(row.get(3));
+                String store = required(row.get(1), "Магазин", 160);
+                BigDecimal amount = new BigDecimal(row.get(2));
+                validatePrice(amount, date);
+                entries.add(new ImportRow(productId, store, amount, date));
             } catch (NumberFormatException | java.time.format.DateTimeParseException ex) {
                 throw new ApiProblem(HttpStatus.BAD_REQUEST,"Некорректные значения в строке "+(i+1));
+            }
+        }
+        // Lock products in the same order across concurrent imports. Equal-date rows keep file order.
+        entries.sort(Comparator.comparingLong(ImportRow::productId).thenComparing(ImportRow::date));
+        int imported = 0, skipped = 0;
+        Product product = null;
+        for (ImportRow entry : entries) {
+            if (product == null || product.id() != entry.productId()) product = lockProduct(entry.productId());
+            if (priceExists(product.id(), entry.store(), entry.date(), entry.price())) {
+                skipped++;
+            } else {
+                recordPrice(product, entry.store(), entry.price(), entry.date(), latestPrice(product.id(), entry.store()));
+                imported++;
             }
         }
         return Map.of("imported",imported,"duplicatesSkipped",skipped);

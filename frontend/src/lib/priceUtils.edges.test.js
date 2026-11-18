@@ -18,6 +18,13 @@ describe('boundary cases of price analysis', () => {
     ])[0].id).toBe(3);
   });
 
+  it('uses only the newest observation for names of the same store with different casing', () => {
+    expect(getLatestByStore([
+      { id: 2, store: 'Маркет', date: '2026-10-01', price: 150 },
+      { id: 3, store: 'МАРКЕТ', date: '2026-10-01', price: 100 },
+    ]).map(({ id }) => id)).toEqual([3]);
+  });
+
   it('returns null metrics on empty input', () => {
     expect(calculateStats([])).toEqual({ min: null, max: null, average: null, count: 0 });
   });

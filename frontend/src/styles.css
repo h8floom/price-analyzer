@@ -67,3 +67,47 @@ dialog.dialog::backdrop { background: #2029418c; }
 .favorite-card .personal-control { justify-self: start; }
 .personal-empty p { max-width: 45ch; font-size: 13px; color: #58647c; }
 .personal-empty .personal-control { margin-top: 16px; }
+
+.topbar .notification-count {
+  position: absolute; inset: 2px -3px auto auto; min-width: 18px; min-height: 18px;
+  display: grid; place-items: center; margin: 0; padding: 1px 4px; border-radius: 10px;
+  background: #484eac; color: white; border: 1px solid white; font-size: 10px;
+  font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.notification-settings {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.notification-settings p, .inbox-description p { color: #53617b; font-size: 13px; }
+.notification-settings label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: #33415c; }
+.notification-settings select {
+  width: 100%; min-width: 12rem; min-height: 44px; border: 1px solid #cbd2e5;
+  border-radius: 8px; padding: 8px 12px; background: #fff; color: #243047;
+}
+.notification-settings select:focus-visible { outline: 2px solid #474bb2; outline-offset: 2px; }
+.inbox-list { list-style: none; margin: 12px 0 0; padding: 0; }
+.inbox-item {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start;
+  padding: 16px; border-top: 1px solid #e7ebf4; content-visibility: auto;
+}
+.inbox-item.unread { background: #f5f6ff; box-shadow: inset 3px 0 #595fc3; }
+.inbox-description time { color: #53617b; font-variant-numeric: tabular-nums; font-size: 12px; }
+.inbox-description h3 { margin: 4px 0 0; font-size: 15px; overflow-wrap: anywhere; }
+.inbox-description a { display: inline-flex; align-items: center; color: #4046a5; text-underline-offset: 3px; }
+.inbox-description a:hover { color: #262c87; }
+.inbox-unread { display: inline-block; margin-top: 8px; color: #4046a5; font-size: 12px; font-weight: 700; }
+.inbox-change { text-align: right; }
+.inbox-change p { margin: 0 0 4px; font-size: 12px; font-weight: 700; }
+.inbox-change .price-down { color: #166754; }
+.inbox-change .price-up { color: #8b4024; }
+.price-change { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; color: #33415c; font-size: 14px; font-variant-numeric: tabular-nums; }
+.inbox-change button, .inbox-panel > button { margin-top: 12px; }
+@media (max-width: 600px) {
+  .notification-settings { flex-direction: column; align-items: stretch; }
+  .inbox-item { grid-template-columns: 1fr; padding: 12px; }
+  .inbox-change { text-align: left; }
+  .price-change { justify-content: flex-start; }
+}
+@media (max-width: 540px) {
+  .topbar .account-bar { gap: 4px; }
+  .topbar .account-bar .btn { min-height: 44px; padding-inline: 12px; }
+}
