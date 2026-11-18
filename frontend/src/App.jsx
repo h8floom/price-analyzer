@@ -58,7 +58,8 @@ function LineChart({ history }) {
       </g>)}
       {labels.map((d) => <text key={d} x={coords(d, min)[0]} y="264" textAnchor="middle" className="axis">{dateLabel(d)}</text>)}
       {stores.map((store, index) => {
-        const points = history.filter((p) => p.store === store).sort((a, b) => a.date.localeCompare(b.date));
+        const key = store.toLowerCase();
+        const points = history.filter((p) => p.store.toLowerCase() === key).sort((a, b) => a.date.localeCompare(b.date));
         const line = points.map((p) => coords(p.date, p.price).join(',')).join(' ');
         return <g key={store}>
           {points.length > 1 && <polyline points={line} stroke={colors[index % colors.length]} fill="none" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />}
@@ -184,7 +185,7 @@ function Workspace({ session, onLogout }) {
   const [page, setPage] = useState('overview');
   const [products, setProducts] = useState([]);
   const [selectedId, setSelectedId] = useState('');
-  const [analysis, setAnalysis] = useState(null);
+  const [analysisResult, setAnalysisResult] = useState(null);
   const [allPrices, setAllPrices] = useState([]);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -201,6 +202,7 @@ function Workspace({ session, onLogout }) {
   const [favoriteError, setFavoriteError] = useState('');
   const [favoriteAttempt, setFavoriteAttempt] = useState(0);
   const inbox = useUnreadNotifications();
+  const analysisKey = JSON.stringify([selectedId, from, to, tick]);
 
   useEffect(() => {
     function productLink() {
@@ -240,14 +242,23 @@ function Workspace({ session, onLogout }) {
   }, [tick]);
 
   useEffect(() => {
-    if (!selectedId) { setAnalysis(null); return; }
-    let ignore = false;
-    api.analysis(selectedId, from, to)
-      .then((value) => { if (!ignore) setAnalysis(value); })
-      .catch((e) => { if (!ignore) { setAnalysis(null); setError(e.message); } });
-    return () => { ignore = true; };
-  }, [selectedId, from, to, tick]);
+    if (!selectedId) return;
+    const request = new AbortController();
+    api.analysis(selectedId, from, to, request.signal)
+      .then((value) => {
+        if (!request.signal.aborted) setAnalysisResult({ key: analysisKey, value });
+      })
+      .catch((failure) => {
+        if (!request.signal.aborted) setAnalysisResult({ key: analysisKey, error: failure.message });
+      });
+    return () => request.abort();
+  }, [selectedId, from, to, analysisKey]);
 
+  const currentAnalysis = analysisResult?.key === analysisKey ? analysisResult : null;
+  const analysis = currentAnalysis?.value;
+  const analysisLoading = Boolean(selectedId && !currentAnalysis);
+  const analysisError = currentAnalysis?.error;
+  const showsAnalysis = page === 'overview' || page === 'compare';
   const latest = analysis?.latest || [];
   const stats = analysis?.stats || calculateStats(latest);
   const filtered = products.filter((p) => `${p.name} ${p.category}`.toLowerCase().includes(search.toLowerCase()));
@@ -369,6 +380,8 @@ function Workspace({ session, onLogout }) {
 
         {error && <div className="alert error" role="alert"><b>Ошибка:</b> {error}<button aria-label="Закрыть ошибку" onClick={() => setError('')}>×</button></div>}
         {message && <div className="alert success" role="status">{message}<button aria-label="Закрыть уведомление" onClick={() => setMessage('')}>×</button></div>}
+        {showsAnalysis && analysisLoading && <p aria-live="polite">Загружаем цены…</p>}
+        {showsAnalysis && analysisError && <div className="alert error" role="alert">{analysisError}</div>}
 
         {page === 'overview' && <>
           <div className="metrics">
@@ -382,16 +395,19 @@ function Workspace({ session, onLogout }) {
               <select aria-label="Товар для графика" value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
             </div>
             <DateRange from={from} to={to} setFrom={setFrom} setTo={setTo} />
-            <LineChart history={analysis?.history || []} />
+            {!analysisLoading && !analysisError && <LineChart history={analysis?.history || []} />}
           </section>
           <section className="panel">
             <div className="panel-head"><div><h2>Цены по магазинам</h2><p>Последние известные предложения для «{selectedProduct?.name || '—'}»</p></div><button className="text-btn" onClick={() => setPage('compare')}>Подробнее →</button></div>
-            {!latest.length ? <div className="empty">Добавь первую цену для сравнения.</div> : <div className="store-list">
-              {latest.map((p, i) => <div className="store-item" key={p.id}>
-                <div className="store-avatar">{p.store[0]}</div><div className="store-name"><b>{p.store}</b><small>Цена на {dateLabel(p.date)}</small></div>
-                <div className="bar"><i style={{ width: `${Number(p.price) / Math.max(...latest.map((x) => Number(x.price))) * 100}%`, background: i === 0 ? '#12ad91' : '#b7b8ed' }} /></div>
-                <strong>{formatPrice(p.price)}</strong>{i === 0 && <span className="best">Выгодно</span>}
-              </div>)}
+            {!latest.length ? !analysisLoading && !analysisError && <div className="empty">Для выбранного товара и периода нет цен.</div> : <div className="store-list">
+              {latest.map((p) => {
+                const best = Number(p.price) === Number(stats.min);
+                return <div className="store-item" key={p.id}>
+                  <div className="store-avatar">{p.store[0]}</div><div className="store-name"><b>{p.store}</b><small>Цена на {dateLabel(p.date)}</small></div>
+                  <div className="bar"><i style={{ width: `${Number(p.price) / Number(stats.max) * 100}%`, background: best ? '#12ad91' : '#b7b8ed' }} /></div>
+                  <strong>{formatPrice(p.price)}</strong>{best && <span className="best">Выгодно</span>}
+                </div>;
+              })}
             </div>}
           </section>
         </>}
@@ -431,12 +447,16 @@ function Workspace({ session, onLogout }) {
           </div>
           <section className="panel"><div className="panel-head"><div><h2>Сравнение магазинов</h2><p>Цены упорядочены по возрастанию</p></div></div>
             <div className="table-scroll"><table><thead><tr><th>МАГАЗИН</th><th>ЦЕНА</th><th>ДАТА</th><th>РАЗНИЦА</th>{admin && <th>ДЕЙСТВИЯ</th>}</tr></thead><tbody>
-              {latest.map((p, i) => <tr key={p.id}><td><b>{p.store}</b>{i === 0 && <span className="best inline">Минимум</span>}</td><td className={i === 0 ? 'green-text' : ''}><b>{formatPrice(p.price)}</b></td><td>{p.date}</td><td>{i === 0 ? '—' : `+${formatPrice(Number(p.price) - Number(stats.min))}`}</td>
-                {admin && <td className="actions">{editablePrices.has(p.id) && <button onClick={() => {
-                  setEditingPrice(p);
-                  setModal('editPrice');
-                }}>Изменить цену</button>}</td>}</tr>)}
-            </tbody></table>{!latest.length && <div className="empty">Для выбранного товара нет цен.</div>}</div>
+              {latest.map((p) => {
+                const difference = Number(p.price) - Number(stats.min);
+                const best = difference === 0;
+                return <tr key={p.id}><td><b>{p.store}</b>{best && <span className="best inline">Минимум</span>}</td><td className={best ? 'green-text' : ''}><b>{formatPrice(p.price)}</b></td><td>{p.date}</td><td>{best ? '—' : `+${formatPrice(difference)}`}</td>
+                  {admin && <td className="actions">{editablePrices.has(p.id) && <button onClick={() => {
+                    setEditingPrice(p);
+                    setModal('editPrice');
+                  }}>Изменить цену</button>}</td>}</tr>;
+              })}
+            </tbody></table>{!latest.length && !analysisLoading && !analysisError && <div className="empty">Для выбранного товара нет цен.</div>}</div>
           </section>
           <section className="panel"><div className="panel-head"><div><h2>История записей</h2></div></div>
             <div className="table-scroll"><table><thead><tr><th>МАГАЗИН</th><th>ЦЕНА</th><th>ДАТА</th><th></th></tr></thead><tbody>

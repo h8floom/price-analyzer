@@ -288,6 +288,102 @@ test('пользователь добавляет цены и сравнивае
   await expect(dateTicks).toHaveText([/^1\D+окт/, /^15\D+окт/]);
 });
 
+async function seedComparison(admin) {
+  await signIn(admin);
+  async function addProduct(prefix) {
+    const name = uniqueName(prefix);
+    const product = await post(admin.request, '/api/products', {
+      data: { name, category: 'Тесты', unit: 'шт.' },
+    });
+    expect(product.status()).toBe(201);
+    return product.json();
+  }
+  const priced = await addProduct('E2E Контрольные цены');
+  const empty = await addProduct('E2E Без цен');
+  for (const [store, price, date] of [
+    ['Контроль Маркет', 110, '2026-10-01'],
+    ['Контроль маркет', 90, '2026-10-10'],
+    ['Контроль Лавка', 90, '2026-10-10'],
+    ['Контроль Лавка', 125, '2026-10-20'],
+  ]) {
+    const saved = await post(admin.request, '/api/prices', { data: { productId: priced.id, store, price, date } });
+    expect(saved.status()).toBe(201);
+  }
+  return { priced, empty };
+}
+
+test('приёмка аналитики: последние цены, разница, равный минимум и границы периода', async ({ page, browser }) => {
+  const admin = await browser.newPage();
+  const { priced } = await seedComparison(admin);
+  await admin.close();
+  await createUser(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Сравнение цен' }).click();
+  await page.getByLabel('Товар для сравнения').selectOption({ label: priced.name });
+  const offers = page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: 'РАЗНИЦА' }) });
+  const rows = offers.locator('tbody tr');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText(/Контроль маркет.*90,00\s*₽/);
+  await expect(rows.nth(1)).toContainText(/Контроль Лавка.*125,00\s*₽.*\+35,00\s*₽/);
+  await expect(page.locator('.metric').filter({ hasText: 'Минимальная' })).toContainText(/90,00\s*₽/);
+  await expect(page.locator('.metric').filter({ hasText: 'Средняя по магазинам' })).toContainText(/107,50\s*₽/);
+  await expect(page.locator('.metric').filter({ hasText: 'Максимальная' })).toContainText(/125,00\s*₽/);
+  await page.getByLabel('Начало периода').fill('2026-10-10');
+  await page.getByLabel('Конец периода').fill('2026-10-10');
+  await expect(rows).toHaveCount(2);
+  await expect(offers.getByText('Минимум', { exact: true })).toHaveCount(2);
+  await expect(offers).not.toContainText(/\+0,00/);
+
+  await page.getByLabel('Конец периода').fill('2026-10-09');
+  await expect(page.getByRole('alert')).toContainText(/дат/);
+  await page.getByRole('button', { name: 'Сбросить период' }).click();
+  await expect(rows.nth(1)).toContainText(/125,00\s*₽/);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('приёмка аналитики: одна линия на магазин, выбор периода и пустой график', async ({ page }) => {
+  const { priced, empty } = await seedComparison(page);
+  await page.goto('/');
+  const selector = page.getByLabel('Товар для графика');
+  await selector.selectOption({ label: priced.name });
+  const chart = page.getByRole('img', { name: 'Линейный график динамики цен' });
+  await expect(chart.locator('circle')).toHaveCount(4);
+  await expect(chart.locator('polyline')).toHaveCount(2);
+  await chart.locator('circle').filter({ hasText: /110,00/ }).focus();
+  await expect(page.locator('.chart-probe')).toContainText(/Контроль маркет.*110,00\s*₽.*2026-10-01/i);
+  await page.getByLabel('Начало периода').fill('2026-10-10');
+  await page.getByLabel('Конец периода').fill('2026-10-10');
+  await expect(chart.locator('circle')).toHaveCount(2);
+  await selector.selectOption({ label: empty.name });
+  await expect(page.getByText('Для выбранного периода пока нет цен.')).toBeVisible();
+  await expect(chart).toHaveCount(0);
+});
+
+test('приёмка аналитики: при смене товара предыдущие цены не видны, пока загружается новый', async ({ page }) => {
+  const { priced, empty } = await seedComparison(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Сравнение цен' }).click();
+  const selector = page.getByLabel('Товар для сравнения');
+  await selector.selectOption({ label: priced.name });
+  const offers = page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: 'РАЗНИЦА' }) });
+  await expect(offers.locator('tbody tr')).toHaveCount(2);
+
+  let allowResponse;
+  const paused = new Promise((resolve) => { allowResponse = resolve; });
+  const path = `**/api/analysis/${empty.id}`;
+  await page.route(path, async (route) => { await paused; await route.continue(); });
+  try {
+    await selector.selectOption({ label: empty.name });
+    await expect(offers.locator('tbody tr')).toHaveCount(0, { timeout: 1000 });
+    await expect(page.getByText('Загружаем цены…')).toBeVisible();
+  } finally {
+    allowResponse();
+  }
+  await expect(page.getByText('Для выбранного товара нет цен.')).toBeVisible();
+  await expect(offers.locator('tbody tr')).toHaveCount(0);
+  await expect(page.locator('.metric strong')).toHaveText(['—', '—', '—']);
+});
+
 test('пользователь загружает CSV и скачивает историю', async ({ page }) => {
   await signIn(page);
   const name = uniqueName('E2E Импорт');

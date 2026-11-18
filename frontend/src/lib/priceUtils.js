@@ -32,7 +32,8 @@ export function calculateStats(records) {
 
 export function getSeries(records) {
   const dates = [...new Set(records.map((item) => item.date))].sort();
-  const stores = [...new Set(records.map((item) => item.store))].sort();
+  const storeNames = new Map(records.map(({ store }) => [store.toLowerCase(), store]));
+  const stores = [...storeNames.values()].sort();
   return { dates, stores };
 }
 

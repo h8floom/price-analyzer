@@ -126,11 +126,11 @@ export const api = {
   deletePrice: (id) => mutate(`/prices/${id}`, { method: 'DELETE' }),
   retention: () => request('/admin/settings/retention'),
   setRetention: (days) => mutate('/admin/settings/retention', { method: 'PUT', body: JSON.stringify({ days }) }),
-  analysis: (id, from = '', to = '') => {
+  analysis: (id, from = '', to = '', signal) => {
     const query = new URLSearchParams();
     if (from) query.set('from', from);
     if (to) query.set('to', to);
-    return request(`/analysis/${id}${query.size ? `?${query}` : ''}`);
+    return request(`/analysis/${id}${query.size ? `?${query}` : ''}`, { signal });
   },
   importCsv: (text) => mutate('/import/prices', {
     method: 'POST', body: text, headers: { 'Content-Type': 'text/csv' },
