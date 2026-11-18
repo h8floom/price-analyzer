@@ -2,6 +2,7 @@ package ru.priceanalyzer.api;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -71,11 +72,17 @@ public class CatalogController {
         return service.analysis(productId,from,to);
     }
     @GetMapping(value="/export/prices.csv",produces="text/csv;charset=UTF-8")
-    public ResponseEntity<String> csv(@RequestParam(required=false) Long productId){
+    public ResponseEntity<byte[]> csv(@RequestParam(required=false) Long productId,
+                                      @RequestParam(defaultValue="standard") String format){
         try {
+            if (!format.equals("standard") && !format.equals("excel")) {
+                throw new ApiProblem(HttpStatus.BAD_REQUEST, "Неизвестный формат CSV");
+            }
+            boolean excel = format.equals("excel");
             if (productId != null) service.product(productId);
-            return ResponseEntity.ok().header(HttpHeaders.CONTENT_DISPOSITION,
-                    "attachment; filename=prices.csv").body(service.exportCsv(productId));
+            return ResponseEntity.ok().contentType(MediaType.parseMediaType("text/csv;charset=UTF-8"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + (excel ? "prices-excel.csv" : "prices.csv"))
+                .body(service.exportCsv(productId, excel).getBytes(StandardCharsets.UTF_8));
         } catch (RuntimeException failure) {
             log.warn("CSV price export failed, productId={}, error={}", productId, failure.getClass().getSimpleName());
             if (failure instanceof ApiProblem problem) throw problem;

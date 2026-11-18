@@ -412,6 +412,13 @@ test('пользователь загружает CSV и скачивает ис
   const csv = await fs.readFile(await download.path(), 'utf8');
   expect(csv).toContain('E2E CSV Магазин');
   expect(csv).toContain('147.25');
+  const nextDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'CSV для Excel' }).click();
+  const excel = await nextDownload;
+  expect(excel.suggestedFilename()).toBe('prices-excel.csv');
+  const bytes = await fs.readFile(await excel.path());
+  expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+  expect(bytes.toString('utf8')).toContain(`productId;productName;store;price;date\r\n${id};"${name}";"E2E CSV Магазин";147,25;2026-10-21\r\n`);
 });
 
 test('пользователь формирует отчёт и выгружает PDF и Excel', async ({ page }) => {

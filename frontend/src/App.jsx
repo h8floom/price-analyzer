@@ -471,9 +471,11 @@ function Workspace({ session, onLogout }) {
         {page === 'import' && <div className="import-grid">
           {admin && <section className="panel import-card"><div className="import-icon">⇪</div><h2>Импорт цен</h2><p>Загрузите историю в CSV или XLSX. Укажите заголовки в первой строке.</p><code>productId,store,price,date</code><label className="file-button"> {busyImport ? 'Загрузка...' : 'Выбрать CSV или XLSX'}<input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={busyImport} onChange={importFile} /></label><small>Дата: YYYY-MM-DD. Повторные записи пропускаются.</small></section>}
           <section className="panel import-card"><div className="import-icon">⇩</div><h2>Экспорт CSV</h2><p>Сохрани историю цен на компьютер. Выбери все товары или только один.</p><select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}><option value="">Все товары</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+            <button type="button" className="btn primary download"
+              onClick={() => api.downloadCsv(selectedId, true).catch((failure) => setError(failure.message))}>CSV для Excel</button>
             <button type="button" className="btn secondary download"
               onClick={() => api.downloadCsv(selectedId).catch((failure) => setError(failure.message))}>Скачать CSV</button>
-            <small>Файл открывается в Excel и других табличных редакторах.</small></section>
+            <small>Для Excel выберите разделитель «точка с запятой». Обычный CSV предназначен для обмена и импорта.</small></section>
         </div>}
       </div>
     </main>

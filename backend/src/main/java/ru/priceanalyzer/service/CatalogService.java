@@ -10,6 +10,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -203,20 +204,34 @@ public class CatalogService {
             "latest",latest,"stats",PriceMath.summarize(latest));
     }
 
-    public String exportCsv(Long productId) {
+    @Transactional(readOnly = true)
+    public String exportCsv(Long productId, boolean excel) {
         List<PriceEntry> records=prices(productId,null,null);
-        StringBuilder out=new StringBuilder("productId,store,price,date\n");
+        char delimiter = excel ? ';' : ',';
+        Map<Long, String> names = excel
+            ? products().stream().collect(Collectors.toMap(Product::id, Product::name)) : Map.of();
+        StringBuilder out=new StringBuilder(excel
+            ? "\uFEFFproductId;productName;store;price;date\r\n" : "productId,store,price,date\n");
         for (PriceEntry row: records) {
-            out.append(row.productId()).append(',')
-               .append(csvEscape(row.store())).append(',')
-               .append(row.price()).append(',')
-               .append(row.date()).append('\n');
+            out.append(row.productId()).append(delimiter);
+            if (excel) out.append(csvEscape(excelText(names.getOrDefault(row.productId(), "")))).append(delimiter);
+            String price = row.price().toPlainString();
+            out.append(csvEscape(excel ? excelText(row.store()) : row.store())).append(delimiter)
+               .append(excel ? price.replace('.', ',') : price).append(delimiter)
+               .append(row.date()).append(excel ? "\r\n" : "\n");
         }
         return out.toString();
     }
 
-    public static String csvEscape(String value) {
+    private static String csvEscape(String value) {
         return "\"" + value.replace("\"","\"\"") + "\"";
+    }
+
+    private static String excelText(String value) {
+        // Excel treats a tab inside a quoted field as text, including when the content starts with a formula.
+        int first = value.codePoints().filter(ch -> !Character.isWhitespace(ch) && !Character.isSpaceChar(ch)
+            && !Character.isISOControl(ch) && Character.getType(ch) != Character.FORMAT).findFirst().orElse(0);
+        return "=+-@＝＋－＠".indexOf(first) >= 0 ? "\t" + value : value;
     }
 
     /** Учебный импорт: заголовок productId,store,price,date; кавычки допускаются. */

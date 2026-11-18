@@ -108,7 +108,12 @@ export const api = {
   requestReset: async (value) => parse(await fetchApi('/auth/password/request', { method: 'POST', body: JSON.stringify(value) })),
   resetPassword: (value) => cookieOperation(async () => { await browserAuth('password/reset', value); updateAuth(null); }),
   health: async () => parse(await fetchApi('/health')),
-  downloadCsv: (id) => download(`/export/prices.csv${id ? `?productId=${encodeURIComponent(id)}` : ''}`, 'prices.csv'),
+  downloadCsv: (id, excel = false) => {
+    const query = new URLSearchParams();
+    if (id) query.set('productId', id);
+    if (excel) query.set('format', 'excel');
+    return download(`/export/prices.csv${query.size ? `?${query}` : ''}`, excel ? 'prices-excel.csv' : 'prices.csv');
+  },
   downloadReport: (format, query) => download(`/reports.${format}?${query}`, `price-report.${format}`),
   products: () => request('/products'),
   favorites: (signal) => request('/favorites', { signal }),

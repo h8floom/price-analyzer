@@ -1,5 +1,6 @@
 package ru.priceanalyzer.api;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -77,5 +78,28 @@ class CatalogApiIntegrationTest {
             .andExpect(jsonPath("$.imported").value(1));
         mvc.perform(get("/api/prices").param("productId","203"))
             .andExpect(jsonPath("$[0].store").value("Магазин, рядом"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    void csvExportsUtf8WithoutChangingTheInterchangeContract() throws Exception {
+        jdbc.update("INSERT INTO products(id,name,category,unit) VALUES(204,?,?,?)", "=Кофе; \"А\"", "Напитки", "шт.");
+        jdbc.update("INSERT INTO price_records(product_id,store,price,observed_on) VALUES(204,?,85.40,DATE '2026-10-03')",
+            "Магазин; \"Рядом\", 24/7\nЭтаж 2");
+        jdbc.update("INSERT INTO price_records(product_id,store,price,observed_on) VALUES(204,?,95.10,DATE '2026-10-04')",
+            "  +1");
+
+        mvc.perform(get("/api/export/prices.csv").param("productId", "204"))
+            .andExpect(status().isOk())
+            .andExpect(content().bytes(("productId,store,price,date\n"
+                + "204,\"Магазин; \"\"Рядом\"\", 24/7\nЭтаж 2\",85.40,2026-10-03\n"
+                + "204,\"  +1\",95.10,2026-10-04\n").getBytes(UTF_8)));
+        mvc.perform(get("/api/export/prices.csv").param("productId", "204").param("format", "excel"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("text/csv;charset=UTF-8"))
+            .andExpect(header().string("Content-Disposition", "attachment; filename=prices-excel.csv"))
+            .andExpect(content().bytes(("\uFEFFproductId;productName;store;price;date\r\n"
+                + "204;\"\t=Кофе; \"\"А\"\"\";\"Магазин; \"\"Рядом\"\", 24/7\nЭтаж 2\";85,40;2026-10-03\r\n"
+                + "204;\"\t=Кофе; \"\"А\"\"\";\"\t  +1\";95,10;2026-10-04\r\n").getBytes(UTF_8)));
     }
 }
