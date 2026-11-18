@@ -44,7 +44,7 @@ jobs:
       - name: Lint frontend and save JSON report
         run: |
           mkdir -p test-metrics
-          npm run lint --prefix frontend -- --format json > test-metrics/eslint-report.json
+          npm run --silent lint --prefix frontend -- --format json > test-metrics/eslint-report.json
 
       - name: Run frontend unit tests and coverage
         if: ${{ always() }}
