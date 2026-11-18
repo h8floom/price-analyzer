@@ -54,6 +54,10 @@ public class Accounts implements UserDetailsService {
         jdbc.update("INSERT INTO accounts(email,password_hash,role) VALUES (?,?,'USER')", normalized(email), hashPassword(password));
     }
 
+    void createLocalAdmin(String email, String password) {
+        jdbc.update("INSERT INTO accounts(email,password_hash,role) VALUES (?,?,'ADMIN')", normalized(email), hashPassword(password));
+    }
+
     @Override
     public UserDetails loadUserByUsername(String email) {
         return jdbc.query("SELECT email,password_hash,role,enabled FROM accounts WHERE email=?", (rs, row) ->
