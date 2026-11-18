@@ -23,6 +23,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.*;
 import org.springframework.test.context.ActiveProfiles;
@@ -98,8 +99,7 @@ class AuthApiTest {
         char replacement = token.access().charAt(position) == 'A' ? 'B' : 'A';
         rejects(token.access().substring(0, position) + replacement + token.access().substring(position + 1));
 
-        var alternate = new NimbusJwtEncoder(new com.nimbusds.jose.jwk.source.ImmutableSecret<>(new byte[64]));
-        rejects(alternate.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS384).type("JWT").build(),
+        rejects(encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS384).type("JWT").build(),
             JwtClaimsSet.builder().claims(values -> values.putAll(claims)).build())).getTokenValue());
     }
 
@@ -195,6 +195,20 @@ class AuthApiTest {
         var token = login(PASSWORD);
         jdbc.update("UPDATE auth_refresh_tokens SET expires_at=0 WHERE token_hash=?", OpaqueTokens.hash(token.refresh()));
         mvc.perform(refresh(token.refresh())).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void httpsDeploymentSetsSecureOnRefreshAndClearingCookies() {
+        var service = mock(AuthGrants.class);
+        var controller = new AuthController(null, service, "https://prices.example");
+        var request = new MockHttpServletRequest();
+        request.addHeader("Origin", "https://prices.example");
+        request.addHeader(AuthController.AUTH_HEADER, "1");
+        when(service.login(EMAIL, PASSWORD)).thenReturn(new AuthGrants.Grant("fixture", "refresh-fixture",
+            Instant.now().plusSeconds(60), new Accounts.Account(1, EMAIL, "USER", true, 0)));
+        assertThat(controller.login(request, new AuthController.Login(EMAIL, PASSWORD)).getHeaders()
+            .getFirst("Set-Cookie").contains("; Secure")).isTrue();
+        assertThat(controller.logout(request, null).getHeaders().getFirst("Set-Cookie").contains("; Secure")).isTrue();
     }
 
     @Test

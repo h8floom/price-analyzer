@@ -11,7 +11,7 @@
 
   <groupId>ru.priceanalyzer</groupId>
   <artifactId>price-analyzer-backend</artifactId>
-  <version>0.3.0-rc.2</version>
+  <version>0.3.0-rc.3</version>
   <name>price-analyzer-backend</name>
   <description>Price Analyzer course project</description>
 

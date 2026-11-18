@@ -127,8 +127,9 @@ public class AuthController {
 
     private ResponseEntity<TokenResponse> tokenResponse(AuthGrants.Grant grant) {
         var user = new SessionUser(grant.account().email(), grant.account().role());
+        Duration remaining = Duration.between(Instant.now(), grant.expiresAt());
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-            .header(HttpHeaders.SET_COOKIE, cookie(grant.refreshToken(), Duration.between(Instant.now(), grant.expiresAt())))
+            .header(HttpHeaders.SET_COOKIE, cookie(grant.refreshToken(), remaining.isNegative() ? Duration.ZERO : remaining))
             .body(new TokenResponse(grant.accessToken(), "Bearer", JwtTokens.ACCESS_LIFETIME.toSeconds(), user));
     }
 

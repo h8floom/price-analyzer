@@ -33,7 +33,9 @@ class AuthGrants {
         this.encoder = encoder;
     }
 
-    record Grant(String accessToken, String refreshToken, Instant expiresAt, Accounts.Account account) {}
+    record Grant(String accessToken, String refreshToken, Instant expiresAt, Accounts.Account account) {
+        @Override public String toString() { return "Grant[redacted]"; }
+    }
     private record Refresh(long accountId, String familyId, long version, long expiresAt, boolean rotated) {}
 
     @Transactional
