@@ -1,7 +1,6 @@
 package ru.priceanalyzer.api;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,7 +32,7 @@ class CatalogApiIntegrationTest {
     }
 
     @Test void createAndReadProduct() throws Exception {
-        mvc.perform(post("/api/products").contentType(MediaType.APPLICATION_JSON).with(csrf())
+        mvc.perform(post("/api/products").contentType(MediaType.APPLICATION_JSON)
             .content("{\"name\":\"Кофе\",\"category\":\"Напитки\",\"unit\":\"шт.\"}"))
             .andExpect(status().isCreated()).andExpect(jsonPath("$.name").value("Кофе"));
         mvc.perform(get("/api/products")).andExpect(status().isOk())
@@ -42,18 +41,18 @@ class CatalogApiIntegrationTest {
 
     @Test void duplicateProductReturnsConflict() throws Exception {
         String data="{\"name\":\"Кофе\",\"category\":\"Напитки\",\"unit\":\"шт.\"}";
-        mvc.perform(post("/api/products").contentType(MediaType.APPLICATION_JSON).with(csrf()).content(data))
+        mvc.perform(post("/api/products").contentType(MediaType.APPLICATION_JSON).content(data))
             .andExpect(status().isCreated());
-        mvc.perform(post("/api/products").contentType(MediaType.APPLICATION_JSON).with(csrf()).content(data))
+        mvc.perform(post("/api/products").contentType(MediaType.APPLICATION_JSON).content(data))
             .andExpect(status().isConflict());
     }
 
     @Test void fullPriceScenario() throws Exception {
         jdbc.update("INSERT INTO products(id,name,category,unit) VALUES(201,'Кофе','Напитки','шт.')");
         String data="{\"productId\":201,\"store\":\"Магнит\",\"price\":349.90,\"date\":\"2026-10-03\"}";
-        mvc.perform(post("/api/prices").contentType(MediaType.APPLICATION_JSON).with(csrf()).content(data))
+        mvc.perform(post("/api/prices").contentType(MediaType.APPLICATION_JSON).content(data))
             .andExpect(status().isCreated());
-        mvc.perform(post("/api/prices").contentType(MediaType.APPLICATION_JSON).with(csrf()).content(data))
+        mvc.perform(post("/api/prices").contentType(MediaType.APPLICATION_JSON).content(data))
             .andExpect(status().isConflict());
         mvc.perform(get("/api/analysis/201")).andExpect(status().isOk())
             .andExpect(jsonPath("$.stats.count").value(1))
@@ -65,7 +64,7 @@ class CatalogApiIntegrationTest {
 
     @Test void invalidPriceReturnsBadRequest() throws Exception {
         jdbc.update("INSERT INTO products(id,name,category,unit) VALUES(202,'Чай','Напитки','шт.')");
-        mvc.perform(post("/api/prices").contentType(MediaType.APPLICATION_JSON).with(csrf())
+        mvc.perform(post("/api/prices").contentType(MediaType.APPLICATION_JSON)
             .content("{\"productId\":202,\"store\":\"Лента\",\"price\":0,\"date\":\"2026-10-03\"}"))
             .andExpect(status().isBadRequest());
     }
@@ -73,7 +72,7 @@ class CatalogApiIntegrationTest {
     @Test void csvImportAcceptsQuotedStore() throws Exception {
         jdbc.update("INSERT INTO products(id,name,category,unit) VALUES(203,'Молоко','Продукты','л')");
         String csv="productId,store,price,date\n203,\"Магазин, рядом\",85.40,2026-10-03\n";
-        mvc.perform(post("/api/import/prices").contentType("text/csv").with(csrf()).content(csv))
+        mvc.perform(post("/api/import/prices").contentType("text/csv").content(csv))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.imported").value(1));
         mvc.perform(get("/api/prices").param("productId","203"))

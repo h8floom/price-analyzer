@@ -22,6 +22,19 @@ CREATE TABLE IF NOT EXISTS accounts (
 );
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS role VARCHAR(5) NOT NULL DEFAULT 'USER'
     CHECK (role IN ('USER', 'ADMIN'));
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS auth_version BIGINT NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS auth_refresh_tokens (
+    token_hash VARCHAR(64) PRIMARY KEY,
+    account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    family_id VARCHAR(36) NOT NULL,
+    auth_version BIGINT NOT NULL,
+    expires_at BIGINT NOT NULL,
+    rotated BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS ix_refresh_account ON auth_refresh_tokens(account_id);
+CREATE INDEX IF NOT EXISTS ix_refresh_family ON auth_refresh_tokens(family_id);
+CREATE INDEX IF NOT EXISTS ix_refresh_expiration ON auth_refresh_tokens(expires_at);
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS notification_mode VARCHAR(13) NOT NULL DEFAULT 'ALL'
     CHECK (notification_mode IN ('ALL', 'DECREASE_ONLY', 'OFF'));
 CREATE TABLE IF NOT EXISTS favorites (

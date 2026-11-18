@@ -1,7 +1,6 @@
 package ru.priceanalyzer.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -44,7 +43,7 @@ class NotificationsApiTest {
             jdbc.update("INSERT INTO accounts(email,password_hash) VALUES (?,'fixture')", email);
         }
         for (String email : new String[] {ALL, LOWER, OFF}) {
-            mvc.perform(put("/api/favorites/710").with(user(email)).with(csrf())).andExpect(status().isNoContent());
+            mvc.perform(put("/api/favorites/710").with(user(email))).andExpect(status().isNoContent());
         }
         mode(LOWER, "DECREASE_ONLY");
         mode(OFF, "OFF");
@@ -62,7 +61,7 @@ class NotificationsApiTest {
         count(OFF, 0);
         count(STRANGER, 0);
 
-        mvc.perform(put("/api/prices/{id}", first).with(admin()).with(csrf())
+        mvc.perform(put("/api/prices/{id}", first).with(admin())
                 .contentType(MediaType.APPLICATION_JSON).content("{\"price\":200}"))
             .andExpect(status().isConflict());
         editPrice(changed, 100);
@@ -92,7 +91,7 @@ class NotificationsApiTest {
         count(ALL, 1);
         count(LOWER, 0);
         for (int attempt = 0; attempt < 2; attempt++) {
-            mvc.perform(multipart("/api/import/prices.xlsx").file(workbook(135)).with(admin()).with(csrf()))
+            mvc.perform(multipart("/api/import/prices.xlsx").file(workbook(135)).with(admin()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.imported").value(1 - attempt))
                 .andExpect(jsonPath("$.duplicatesSkipped").value(attempt));
         }
@@ -120,17 +119,17 @@ class NotificationsApiTest {
         mvc.perform(put("/api/notifications/{id}/read", id)).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/notifications").with(user(STRANGER)).param("email", ALL).param("accountId", "1"))
             .andExpect(jsonPath("$.items.length()").value(0));
-        mvc.perform(put("/api/notifications/{id}/read", id).with(user(LOWER)).with(csrf()).param("email", ALL))
+        mvc.perform(put("/api/notifications/{id}/read", id).with(user(LOWER)).param("email", ALL))
             .andExpect(status().isNotFound());
-        mvc.perform(put("/api/notifications/{id}/read", id).with(user(ALL))).andExpect(status().isForbidden());
+        mvc.perform(put("/api/notifications/{id}/read", id).with(user(ALL).roles("OTHER"))).andExpect(status().isForbidden());
         for (int attempt = 0; attempt < 2; attempt++) {
-            mvc.perform(put("/api/notifications/{id}/read", id).with(user(ALL)).with(csrf()))
+            mvc.perform(put("/api/notifications/{id}/read", id).with(user(ALL)))
                 .andExpect(status().isNoContent());
         }
         count(ALL, 0);
         count(LOWER, 1);
         mvc.perform(get("/api/notifications").with(user(ALL))).andExpect(jsonPath("$.items[0].read").value(true));
-        mvc.perform(put("/api/notifications/settings").with(user(STRANGER)).with(csrf()).param("email", ALL)
+        mvc.perform(put("/api/notifications/settings").with(user(STRANGER)).param("email", ALL)
             .contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"OFF\",\"email\":\"" + ALL + "\"}"))
             .andExpect(status().isNoContent());
         mvc.perform(get("/api/notifications").with(user(ALL))).andExpect(jsonPath("$.mode").value("ALL"));
@@ -139,13 +138,13 @@ class NotificationsApiTest {
     @Test
     void rolledBackImportDoesNotLeavePricesOrNotificationsAndUnfollowingStopsAlerts() throws Exception {
         addPrice(100, "2026-11-16");
-        mvc.perform(post("/api/import/prices").with(admin()).with(csrf()).contentType("text/csv")
+        mvc.perform(post("/api/import/prices").with(admin()).contentType("text/csv")
             .content(header() + "710,Market,150,2026-11-17\n999999,Market,90,2026-11-17\n"))
             .andExpect(status().isNotFound());
         count(ALL, 0);
         mvc.perform(get("/api/prices").with(user(ALL)).param("productId", "710"))
             .andExpect(jsonPath("$.length()").value(1));
-        mvc.perform(delete("/api/favorites/710").with(user(ALL)).with(csrf())).andExpect(status().isNoContent());
+        mvc.perform(delete("/api/favorites/710").with(user(ALL))).andExpect(status().isNoContent());
         addPrice(90, "2026-11-17");
         count(ALL, 0);
         count(LOWER, 1);
@@ -170,7 +169,7 @@ class NotificationsApiTest {
             .andExpect(jsonPath("$.items.length()").value(0));
         count(ALL, 31);
         count(STRANGER, 0);
-        mvc.perform(put("/api/notifications/settings").with(user(ALL)).with(csrf())
+        mvc.perform(put("/api/notifications/settings").with(user(ALL))
             .contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"UNKNOWN\"}"))
             .andExpect(status().isBadRequest());
     }
@@ -183,20 +182,20 @@ class NotificationsApiTest {
     }
 
     private void mode(String email, String value) throws Exception {
-        mvc.perform(put("/api/notifications/settings").with(user(email)).with(csrf())
+        mvc.perform(put("/api/notifications/settings").with(user(email))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"" + value + "\"}"))
             .andExpect(status().isNoContent());
     }
 
     private long addPrice(int amount, String date) throws Exception {
-        var result = mvc.perform(post("/api/prices").with(admin()).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+        var result = mvc.perform(post("/api/prices").with(admin()).contentType(MediaType.APPLICATION_JSON)
             .content("{\"productId\":710,\"store\":\"Market\",\"price\":" + amount + ",\"date\":\"" + date + "\"}"))
             .andExpect(status().isCreated()).andReturn().getResponse();
         return json.readTree(result.getContentAsByteArray()).path("id").asLong();
     }
 
     private long editPrice(long id, int amount) throws Exception {
-        var result = mvc.perform(put("/api/prices/{id}", id).with(admin()).with(csrf())
+        var result = mvc.perform(put("/api/prices/{id}", id).with(admin())
                 .contentType(MediaType.APPLICATION_JSON).content("{\"price\":" + amount + "}"))
             .andExpect(status().isOk()).andReturn().getResponse();
         return json.readTree(result.getContentAsByteArray()).path("id").asLong();
@@ -205,7 +204,7 @@ class NotificationsApiTest {
     private String header() { return "productId,store,price,date\n"; }
 
     private void importCsv(String csv, int imported, int duplicates) throws Exception {
-        mvc.perform(post("/api/import/prices").with(admin()).with(csrf()).contentType("text/csv").content(csv))
+        mvc.perform(post("/api/import/prices").with(admin()).contentType("text/csv").content(csv))
             .andExpect(status().isOk()).andExpect(jsonPath("$.imported").value(imported))
             .andExpect(jsonPath("$.duplicatesSkipped").value(duplicates));
     }

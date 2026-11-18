@@ -1,6 +1,5 @@
 package ru.priceanalyzer.api;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -37,18 +36,18 @@ class FavoritesApiTest {
 
     @Test
     void favoritesAreIdempotentAndScopedToTheAuthenticatedAccount() throws Exception {
-        mvc.perform(put("/api/favorites/620").with(user(FIRST)).with(csrf())).andExpect(status().isNoContent());
-        mvc.perform(put("/api/favorites/620").with(user(FIRST)).with(csrf())).andExpect(status().isNoContent());
-        mvc.perform(put("/api/favorites/621").with(user(SECOND)).with(csrf()).param("email", FIRST))
+        mvc.perform(put("/api/favorites/620").with(user(FIRST))).andExpect(status().isNoContent());
+        mvc.perform(put("/api/favorites/620").with(user(FIRST))).andExpect(status().isNoContent());
+        mvc.perform(put("/api/favorites/621").with(user(SECOND)).param("email", FIRST))
             .andExpect(status().isNoContent());
         mvc.perform(get("/api/favorites").with(user(FIRST)))
             .andExpect(jsonPath("$.length()").value(1)).andExpect(jsonPath("$[0]").value(620));
         mvc.perform(get("/api/favorites").with(user(SECOND)).param("userId", "1").param("email", FIRST))
             .andExpect(jsonPath("$.length()").value(1)).andExpect(jsonPath("$[0]").value(621));
-        mvc.perform(delete("/api/favorites/620").with(user(SECOND)).with(csrf()).param("email", FIRST))
+        mvc.perform(delete("/api/favorites/620").with(user(SECOND)).param("email", FIRST))
             .andExpect(status().isNoContent());
         mvc.perform(get("/api/favorites").with(user(FIRST))).andExpect(jsonPath("$[0]").value(620));
-        mvc.perform(delete("/api/favorites/620").with(user(FIRST)).with(csrf())).andExpect(status().isNoContent());
+        mvc.perform(delete("/api/favorites/620").with(user(FIRST))).andExpect(status().isNoContent());
         mvc.perform(get("/api/favorites").with(user(FIRST))).andExpect(jsonPath("$.length()").value(0));
     }
 
@@ -56,10 +55,10 @@ class FavoritesApiTest {
     void deniesGuestsAndHandlesMissingOrDeletedProducts() throws Exception {
         mvc.perform(get("/api/favorites")).andExpect(status().isUnauthorized());
         mvc.perform(put("/api/favorites/620")).andExpect(status().isUnauthorized());
-        mvc.perform(put("/api/favorites/999").with(user(FIRST)).with(csrf())).andExpect(status().isNotFound());
-        mvc.perform(put("/api/favorites/620").with(user(FIRST))).andExpect(status().isForbidden());
-        mvc.perform(put("/api/favorites/620").with(user(FIRST)).with(csrf())).andExpect(status().isNoContent());
-        mvc.perform(delete("/api/products/620").with(user(SECOND).roles("ADMIN")).with(csrf()))
+        mvc.perform(put("/api/favorites/999").with(user(FIRST))).andExpect(status().isNotFound());
+        mvc.perform(put("/api/favorites/620").with(user(FIRST).roles("OTHER"))).andExpect(status().isForbidden());
+        mvc.perform(put("/api/favorites/620").with(user(FIRST))).andExpect(status().isNoContent());
+        mvc.perform(delete("/api/products/620").with(user(SECOND).roles("ADMIN")))
             .andExpect(status().isNoContent());
         mvc.perform(get("/api/favorites").with(user(FIRST))).andExpect(jsonPath("$.length()").value(0));
     }

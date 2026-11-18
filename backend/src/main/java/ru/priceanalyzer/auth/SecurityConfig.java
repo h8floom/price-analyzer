@@ -6,22 +6,26 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.MediaType;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.ProviderManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.authentication.AnonymousAuthenticationToken;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.session.SessionRegistry;
-import org.springframework.security.core.session.SessionRegistryImpl;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.session.HttpSessionEventPublisher;
 
 @Configuration
 public class SecurityConfig {
-    private static final List<String> PUBLIC_API = List.of("/api/health", "/api/auth/csrf",
-        "/api/auth/register", "/api/auth/login", "/api/auth/password/request", "/api/auth/password/reset");
+    private static final String[] PUBLIC_API = {"/api/health", "/api/auth/register", "/api/auth/login",
+        "/api/auth/refresh", "/api/auth/logout", "/api/auth/password/request", "/api/auth/password/reset"};
+
     @Bean
     PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder(12) {
@@ -34,56 +38,55 @@ public class SecurityConfig {
     }
 
     @Bean
-    SessionRegistry sessionRegistry() {
-        return new SessionRegistryImpl();
+    AuthenticationManager authenticationManager(Accounts accounts, PasswordEncoder encoder) {
+        var provider = new DaoAuthenticationProvider(accounts);
+        provider.setPasswordEncoder(encoder);
+        return new ProviderManager(provider);
     }
 
     @Bean
-    HttpSessionEventPublisher sessionEvents() {
-        return new HttpSessionEventPublisher();
-    }
-
-    @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, SessionRegistry sessions) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, Accounts accounts) throws Exception {
         http.authorizeHttpRequests(auth -> auth
-                .requestMatchers(PUBLIC_API.toArray(String[]::new)).permitAll()
+                .requestMatchers(PUBLIC_API).permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/products", "/api/prices", "/api/import/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/api/products/**", "/api/prices/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/api/products/**", "/api/prices/**").hasRole("ADMIN")
                 .requestMatchers("/api/**").hasAnyRole("USER", "ADMIN")
                 .anyRequest().permitAll())
-            .requestCache(cache -> cache.disable())
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .requestCache(AbstractHttpConfigurer::disable)
+            .logout(AbstractHttpConfigurer::disable)
+            // Data APIs use only Authorization. Cookie endpoints verify Origin and an application header.
+            .csrf(AbstractHttpConfigurer::disable)
             .exceptionHandling(errors -> errors
                 .authenticationEntryPoint((req, resp, error) -> unauthorized(resp))
-                .accessDeniedHandler((req, resp, error) -> {
-                    var authentication = SecurityContextHolder.getContext().getAuthentication();
-                    String path = req.getRequestURI().substring(req.getContextPath().length());
-                    if ((authentication == null || authentication instanceof AnonymousAuthenticationToken)
-                            && path.startsWith("/api/") && !PUBLIC_API.contains(path)) {
-                        unauthorized(resp);
-                    } else {
-                        respond(resp, 403, "Действие запрещено");
+                .accessDeniedHandler((req, resp, error) -> respond(resp, 403, "Действие запрещено")))
+            .oauth2ResourceServer(oauth -> oauth
+                .authenticationEntryPoint((req, resp, error) -> unauthorized(resp))
+                .jwt(jwt -> jwt.jwtAuthenticationConverter(token -> {
+                    long id;
+                    try {
+                        id = Long.parseLong(token.getSubject());
+                    } catch (NumberFormatException invalid) {
+                        throw invalidToken();
                     }
-                }))
-            .formLogin(form -> form
-                .loginPage("/")
-                .loginProcessingUrl("/api/auth/login")
-                .usernameParameter("email")
-                .successHandler((req, resp, authentication) -> resp.setStatus(204))
-                .failureHandler((req, resp, error) -> respond(resp, 401, "Неверная почта или пароль")))
-            .logout(logout -> logout.logoutUrl("/api/auth/logout")
-                .logoutSuccessHandler((req, resp, authentication) -> {
-                    if (authentication == null) unauthorized(resp);
-                    else resp.setStatus(204);
-                }))
-            .sessionManagement(session -> session.maximumSessions(-1)
-                .sessionRegistry(sessions)
-                .expiredSessionStrategy(event -> unauthorized(event.getResponse())));
+                    Number version = token.getClaim("ver");
+                    var account = accounts.find(id).filter(owner -> owner.enabled()
+                        && owner.version() == version.longValue() && owner.role().equals(token.getClaimAsString("role")))
+                        .orElseThrow(SecurityConfig::invalidToken);
+                    return new JwtAuthenticationToken(token, List.of(new SimpleGrantedAuthority("ROLE_" + account.role())),
+                        account.email());
+                })));
         return http.build();
     }
 
+    private static InvalidBearerTokenException invalidToken() {
+        return new InvalidBearerTokenException("Invalid access token");
+    }
+
     private static void unauthorized(HttpServletResponse response) throws IOException {
+        response.setHeader("WWW-Authenticate", "Bearer");
         respond(response, 401, "Войдите в аккаунт");
     }
 

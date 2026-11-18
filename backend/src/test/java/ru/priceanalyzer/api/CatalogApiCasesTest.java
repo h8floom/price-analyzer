@@ -1,7 +1,6 @@
 package ru.priceanalyzer.api;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -34,40 +33,40 @@ class CatalogApiCasesTest {
     @Test void updateProductAndRejectDuplicateName() throws Exception {
         jdbc.update("INSERT INTO products(id,name,category,unit) VALUES(501,'Кофе','Напитки','шт.')");
         jdbc.update("INSERT INTO products(id,name,category,unit) VALUES(502,'Чай','Напитки','шт.')");
-        mvc.perform(put("/api/products/501").contentType(MediaType.APPLICATION_JSON).with(csrf())
+        mvc.perform(put("/api/products/501").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"Кофе молотый\",\"category\":\"Продукты\",\"unit\":\"уп.\"}"))
             .andExpect(status().isOk()).andExpect(jsonPath("$.name").value("Кофе молотый"))
             .andExpect(jsonPath("$.category").value("Продукты"));
-        mvc.perform(put("/api/products/502").contentType(MediaType.APPLICATION_JSON).with(csrf())
+        mvc.perform(put("/api/products/502").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"кофе молотый\",\"category\":\"Продукты\",\"unit\":\"уп.\"}"))
             .andExpect(status().isConflict());
     }
 
     @Test void oldCatalogUpdateDoesNotDiscardDescription() throws Exception {
         jdbc.update("INSERT INTO products(id,name,category,unit,description) VALUES(503,'Товар','Продукты','шт.','Описание')");
-        mvc.perform(put("/api/products/503").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put("/api/products/503").contentType(MediaType.APPLICATION_JSON)
             .content("{\"name\":\"Товар\",\"category\":\"Продукты\",\"unit\":\"кг\"}"))
             .andExpect(status().isOk()).andExpect(jsonPath("$.description").value("Описание"));
     }
 
     @Test void rejectBlankProductAndUnknownProduct() throws Exception {
-        mvc.perform(post("/api/products").contentType(MediaType.APPLICATION_JSON).with(csrf())
+        mvc.perform(post("/api/products").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"  \",\"category\":\"Напитки\",\"unit\":\"шт.\"}"))
             .andExpect(status().isBadRequest());
-        mvc.perform(put("/api/products/999999").contentType(MediaType.APPLICATION_JSON).with(csrf()).content(COFFEE))
+        mvc.perform(put("/api/products/999999").contentType(MediaType.APPLICATION_JSON).content(COFFEE))
             .andExpect(status().isNotFound());
-        mvc.perform(delete("/api/products/999999").with(csrf())).andExpect(status().isNotFound());
+        mvc.perform(delete("/api/products/999999")).andExpect(status().isNotFound());
     }
 
     @Test void rejectsUnknownProductForPriceAndNonpositivePrice() throws Exception {
-        mvc.perform(post("/api/prices").contentType(MediaType.APPLICATION_JSON).with(csrf())
+        mvc.perform(post("/api/prices").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"productId\":999999,\"store\":\"Лента\",\"price\":15,\"date\":\"2026-10-01\"}"))
             .andExpect(status().isNotFound());
         jdbc.update("INSERT INTO products(id,name,category,unit) VALUES(503,'Чай','Напитки','шт.')");
-        mvc.perform(post("/api/prices").contentType(MediaType.APPLICATION_JSON).with(csrf())
+        mvc.perform(post("/api/prices").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"productId\":503,\"store\":\"Лента\",\"price\":-4,\"date\":\"2026-10-01\"}"))
             .andExpect(status().isBadRequest());
-        mvc.perform(post("/api/prices").contentType(MediaType.APPLICATION_JSON).with(csrf())
+        mvc.perform(post("/api/prices").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"productId\":503,\"store\":\"\",\"price\":10,\"date\":\"2026-10-01\"}"))
             .andExpect(status().isBadRequest());
     }
@@ -86,7 +85,7 @@ class CatalogApiCasesTest {
     @Test void deletingProductAlsoDeletesItsPrices() throws Exception {
         jdbc.update("INSERT INTO products(id,name,category,unit) VALUES(505,'Чай','Напитки','шт.')");
         jdbc.update("INSERT INTO price_records(product_id,store,price,observed_on) VALUES(505,'Лента',120,'2026-10-15')");
-        mvc.perform(delete("/api/products/505").with(csrf())).andExpect(status().isNoContent());
+        mvc.perform(delete("/api/products/505")).andExpect(status().isNoContent());
         mvc.perform(get("/api/prices").param("productId","505"))
             .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
     }
@@ -94,13 +93,13 @@ class CatalogApiCasesTest {
     @Test void duplicateCsvImportSkippedAndInvalidCsvRejected() throws Exception {
         jdbc.update("INSERT INTO products(id,name,category,unit) VALUES(506,'Чай','Напитки','шт.')");
         String csv = "productId,store,price,date\n506,Лента,77.00,2026-10-01\n";
-        mvc.perform(post("/api/import/prices").contentType("text/csv").with(csrf()).content(csv))
+        mvc.perform(post("/api/import/prices").contentType("text/csv").content(csv))
             .andExpect(status().isOk()).andExpect(jsonPath("$.imported").value(1));
-        mvc.perform(post("/api/import/prices").contentType("text/csv").with(csrf()).content(csv))
+        mvc.perform(post("/api/import/prices").contentType("text/csv").content(csv))
             .andExpect(status().isOk()).andExpect(jsonPath("$.duplicatesSkipped").value(1));
-        mvc.perform(post("/api/import/prices").contentType("text/csv").with(csrf()).content("bad,header\n1,2\n"))
+        mvc.perform(post("/api/import/prices").contentType("text/csv").content("bad,header\n1,2\n"))
             .andExpect(status().isBadRequest());
-        mvc.perform(post("/api/import/prices").contentType("text/csv").with(csrf()).content("productId,store,price,date\n506,\"Лента,77,2026-10-01\n"))
+        mvc.perform(post("/api/import/prices").contentType("text/csv").content("productId,store,price,date\n506,\"Лента,77,2026-10-01\n"))
             .andExpect(status().isBadRequest());
     }
 }

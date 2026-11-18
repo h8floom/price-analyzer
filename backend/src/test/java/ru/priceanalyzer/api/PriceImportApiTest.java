@@ -1,6 +1,5 @@
 package ru.priceanalyzer.api;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -36,9 +35,9 @@ class PriceImportApiTest {
     @Test
     void acceptsExcelDateAndSkipsExistingPrice() throws Exception {
         var xlsx = prices(false);
-        mvc.perform(multipart("/api/import/prices.xlsx").file(xlsx).with(csrf()))
+        mvc.perform(multipart("/api/import/prices.xlsx").file(xlsx))
             .andExpect(status().isOk()).andExpect(jsonPath("$.imported").value(1));
-        mvc.perform(multipart("/api/import/prices.xlsx").file(xlsx).with(csrf()))
+        mvc.perform(multipart("/api/import/prices.xlsx").file(xlsx))
             .andExpect(status().isOk()).andExpect(jsonPath("$.duplicatesSkipped").value(1));
         mvc.perform(get("/api/prices").param("productId","801"))
             .andExpect(jsonPath("$[0].date").value("2026-10-15"))
@@ -47,7 +46,7 @@ class PriceImportApiTest {
 
     @Test
     void rejectsInvalidXlsxRowAndRollsBackEarlierRows() throws Exception {
-        mvc.perform(multipart("/api/import/prices.xlsx").file(prices(true)).with(csrf()))
+        mvc.perform(multipart("/api/import/prices.xlsx").file(prices(true)))
             .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error").isString());
         mvc.perform(get("/api/prices").param("productId","801"))
             .andExpect(jsonPath("$.length()").value(0));
@@ -55,11 +54,11 @@ class PriceImportApiTest {
 
     @Test
     void acceptsCsvBomAndRejectsUnparseableWorkbook() throws Exception {
-        mvc.perform(post("/api/import/prices").with(csrf()).contentType("text/csv;charset=UTF-8")
+        mvc.perform(post("/api/import/prices").contentType("text/csv;charset=UTF-8")
             .content("\uFEFFproductId,store,price,date\n801,Маркет,90.00,2026-10-15\n"))
             .andExpect(status().isOk()).andExpect(jsonPath("$.imported").value(1));
         var malformed = new MockMultipartFile("file", "broken.xlsx", "application/octet-stream", new byte[]{1, 2, 3});
-        mvc.perform(multipart("/api/import/prices.xlsx").file(malformed).with(csrf()))
+        mvc.perform(multipart("/api/import/prices.xlsx").file(malformed))
             .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error").isString());
     }
 
