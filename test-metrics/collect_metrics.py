@@ -109,8 +109,11 @@ def main() -> None:
     lint_errors = sum(int(item.get("errorCount", 0)) for item in eslint if isinstance(item, dict)) if eslint_available else None
     lint_warnings = sum(int(item.get("warningCount", 0)) for item in eslint if isinstance(item, dict)) if eslint_available else None
 
-    test_files = [ROOT / "frontend/coverage/junit.xml"]
-    test_files += list((ROOT / "backend/target/surefire-reports").glob("TEST-*.xml")) if (ROOT / "backend/target/surefire-reports").exists() else []
+    test_files = [
+        ROOT / "frontend/test-results/vitest-junit.xml",
+        ROOT / "frontend/test-results/playwright-junit.xml",
+        *sorted((ROOT / "backend/target/surefire-reports").glob("TEST-*.xml")),
+    ]
     existing_test_files = [path for path in test_files if path.exists()]
     test_totals = [0, 0, 0, 0]
     for path in existing_test_files:
