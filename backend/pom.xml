@@ -17,6 +17,7 @@
 
   <properties>
     <java.version>21</java.version>
+    <price-analyzer.build-directory>${project.basedir}/target</price-analyzer.build-directory>
   </properties>
 
   <dependencies>
@@ -79,6 +80,7 @@
   </dependencies>
 
   <build>
+    <directory>${price-analyzer.build-directory}</directory>
     <plugins>
       <plugin>
         <groupId>org.springframework.boot</groupId>

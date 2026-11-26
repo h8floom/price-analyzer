@@ -14,6 +14,7 @@ frontend/test-results/
 frontend/playwright-report/
 frontend/coverage/
 backend/target/
+backend/target-dev/
 reports/
 
 # Зависимости и локальные настройки

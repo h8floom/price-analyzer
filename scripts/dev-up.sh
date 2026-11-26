@@ -160,10 +160,15 @@ fi
 
 export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
 export PATH="$JAVA_HOME/bin:$PATH"
-mvn -q -f backend/pom.xml -DskipTests package
-artifact="$(sed -n 's/^artifactId=//p' backend/target/maven-archiver/pom.properties)"
-version="$(sed -n 's/^version=//p' backend/target/maven-archiver/pom.properties)"
-jar="$root/backend/target/$artifact-$version.jar"
+# VS Code can write its own compiler output to backend/target.
+build_dir="$root/backend/target-dev/server"
+if [[ "${1:-}" == admin ]]; then
+    build_dir="$root/backend/target-dev/admin"
+fi
+mvn -q -f backend/pom.xml "-Dprice-analyzer.build-directory=$build_dir" -DskipTests clean package
+artifact="$(sed -n 's/^artifactId=//p' "$build_dir/maven-archiver/pom.properties")"
+version="$(sed -n 's/^version=//p' "$build_dir/maven-archiver/pom.properties")"
+jar="$build_dir/$artifact-$version.jar"
 [[ -f "$jar" ]] || fail 'Maven не создал запускаемый JAR.'
 
 boot() {
@@ -192,20 +197,24 @@ if "$with_mailpit"; then
 fi
 
 services_running() {
-    kill -0 "$api_pid" "$web_pid" 2>/dev/null && { [[ -z "$mail_pid" ]] || kill -0 "$mail_pid" 2>/dev/null; }
+    kill -0 "$api_pid" 2>/dev/null &&
+        { [[ -z "$web_pid" ]] || kill -0 "$web_pid" 2>/dev/null; } &&
+        { [[ -z "$mail_pid" ]] || kill -0 "$mail_pid" 2>/dev/null; }
 }
 
 (boot "${server_args[@]}") &
 api_pid=$!
-(cd frontend && exec node node_modules/vite/bin/vite.js --host localhost) &
-web_pid=$!
 
 for ((attempt=0; attempt<90; attempt++)); do
     services_running || fail 'Запуск приложения прервался. См. сообщения выше.'
-    if curl --noproxy '*' -fs --max-time 2 "$api/api/health" >/dev/null &&
-        curl --noproxy '*' -fs --max-time 2 "$site/" >/dev/null &&
-        curl --noproxy '*' -fs --max-time 2 "$site/api/health" >/dev/null &&
+    if [[ -z "$web_pid" ]] && curl --noproxy '*' -fs --max-time 2 "$api/api/health" >/dev/null &&
         { ! "$with_mailpit" || curl --noproxy '*' -fs --max-time 2 http://127.0.0.1:8025/readyz >/dev/null; }; then
+        (cd frontend && exec node node_modules/vite/bin/vite.js --host localhost) &
+        web_pid=$!
+    fi
+    if [[ -n "$web_pid" ]] &&
+        curl --noproxy '*' -fs --max-time 2 "$site/" >/dev/null &&
+        curl --noproxy '*' -fs --max-time 2 "$site/api/health" >/dev/null; then
         printf '\nPrice Analyzer: %s\nДля остановки нажмите Ctrl+C.\n' "$site"
         if "$with_mailpit"; then printf 'Mailpit: http://127.0.0.1:8025\n'; fi
         while services_running; do sleep 1; done

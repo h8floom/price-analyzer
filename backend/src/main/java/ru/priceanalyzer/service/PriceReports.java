@@ -3,6 +3,7 @@ package ru.priceanalyzer.service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -56,8 +57,9 @@ public class PriceReports {
             var key = new Key(entry.productId(), entry.store().toLowerCase(Locale.ROOT));
             series.compute(key, (unused, previous) -> new Series(previous == null ? entry : previous.first(), entry));
         }
-        Map<String, Totals> grouped = new TreeMap<>(
-            filter.group().equals("store") ? String.CASE_INSENSITIVE_ORDER : java.util.Comparator.naturalOrder());
+        Comparator<String> labelOrder = filter.group().equals("store")
+            ? String.CASE_INSENSITIVE_ORDER : Comparator.naturalOrder();
+        Map<String, Totals> grouped = new TreeMap<>(labelOrder);
         for (Series sample : series.values()) {
             if (sample.first().date().equals(sample.last().date())) continue;
             Product product = products.get(sample.last().productId());
